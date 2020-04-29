@@ -1,1 +1,1 @@
-# basic-GAN
+# style-gan
