@@ -1,7 +1,9 @@
 import tensorflow as tf
-import generator_synthesis
-import os
+import generator
+import generator_loss
 import discriminator
+import discriminator_loss
+import os
 import config
 import time
 import matplotlib.pyplot as plt
@@ -20,36 +22,39 @@ train_images = (train_images - 127.5) / 127.5
 
 train_dataset = tf.data.Dataset.from_tensor_slices(train_images).shuffle(config.BUFFER_SIZE).batch(config.BATCH_SIZE)
 
-generator_model = generator_synthesis.create_model()
-discriminator_model = discriminator.create_model()
+generator_model = generator.generator_model()
+discriminator_model = discriminator.discriminator_model()
 
 checkpoint_dir = './training_checkpoints'
 checkpoint_prefix = os.path.join(checkpoint_dir, "ckpt")
-checkpoint = tf.train.Checkpoint(generator_optimizer=generator_synthesis.optimizer,
-                                 discriminator_optimizer=discriminator.optimizer,
+
+generator_optimizer = tf.keras.optimizers.Adam(1e-4)
+discriminator_optimizer = tf.keras.optimizers.Adam(1e-4)
+
+checkpoint = tf.train.Checkpoint(generator_optimizer=generator_optimizer,
+                                 discriminator_optimizer=discriminator_optimizer,
                                  generator=generator_model,
                                  discriminator=discriminator_model)
 
 
 @tf.function
 def train_step(images):
-    noise = tf.random.normal([config.BATCH_SIZE, config.noise_dim])
-    latents = tf.random_normal([minibatch_size] + G.input_shapes[0][1:])
+    latents = tf.random.normal([config.BATCH_SIZE, 512])
 
     with tf.GradientTape() as gen_tape, tf.GradientTape() as disc_tape:
-        generated_images = generator_model(noise, training=True)
+        generated_images = generator_model(latents, training=True)
 
         real_output = discriminator_model(images, training=True)
         fake_output = discriminator_model(generated_images, training=True)
 
-        gen_loss = generator_synthesis.loss(fake_output)
-        disc_loss = discriminator.loss(real_output, fake_output)
+        gen_loss = generator_loss.loss(fake_output)
+        disc_loss = discriminator_loss.loss(real_output, fake_output)
 
     gradients_of_generator = gen_tape.gradient(gen_loss, generator_model.trainable_variables)
     gradients_of_discriminator = disc_tape.gradient(disc_loss, discriminator_model.trainable_variables)
 
-    generator_synthesis.optimizer.apply_gradients(zip(gradients_of_generator, generator_model.trainable_variables))
-    discriminator.optimizer.apply_gradients(zip(gradients_of_discriminator, discriminator_model.trainable_variables))
+    generator_optimizer.apply_gradients(zip(gradients_of_generator, generator_model.trainable_variables))
+    discriminator_optimizer.apply_gradients(zip(gradients_of_discriminator, discriminator_model.trainable_variables))
 
 
 def train(dataset, epochs):

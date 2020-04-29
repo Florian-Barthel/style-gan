@@ -5,7 +5,7 @@ import utils
 import layers
 
 
-def generator_model(mapping_layers,
+def generator_model(mapping_layers=8,
                     mapping_fmaps=512,
                     resolution=128,
                     fmap_base=1024,
@@ -76,4 +76,4 @@ def generator_model(mapping_layers,
     for res in range(3, resolution_log2 + 1):
         result = block(res, result)
     result = to_rgb(resolution_log2, result)
-    return result
+    return tf.keras.models.Model(inputs=latents, outputs=result)

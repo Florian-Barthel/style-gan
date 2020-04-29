@@ -94,8 +94,8 @@ def instance_norm():
     return tf.keras.layers.Lambda(func)
 
 
-def pixel_norm(x):
-    def func():
+def pixel_norm():
+    def func(x):
         epsilon = 1e-8
         epsilon = tf.constant(epsilon, dtype=x.dtype, name='epsilon')
         return x * tf.rsqrt(tf.reduce_mean(tf.square(x), axis=1, keepdims=True) + epsilon)

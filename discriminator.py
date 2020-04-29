@@ -6,9 +6,8 @@ import layers
 
 def discriminator_model(
         # images_in,  # First input: Images [minibatch, channel, height, width].
-        num_channels=1,  # Number of input color channels. Overridden based on dataset.
         resolution=32,  # Input resolution. Overridden based on dataset.
-        fmap_base=8192,  # Overall multiplier for the number of feature maps.
+        fmap_base=1024,  # Overall multiplier for the number of feature maps.
         fmap_decay=1.0,  # log2 feature map reduction when doubling the resolution.
         fmap_max=512,  # Maximum number of feature maps in any layer.
         mbstd_group_size=4,  # Group size for the minibatch standard deviation layer, 0 = disable.
@@ -22,7 +21,6 @@ def discriminator_model(
 
     def nf(stage):
         return min(int(fmap_base / (2.0 ** (stage * fmap_decay))), fmap_max)
-
 
     # images_in.set_shape([None, num_channels, resolution, resolution])
     # images_in = tf.cast(images_in, dtype)
@@ -62,8 +60,7 @@ def discriminator_model(
             block_model.add(layers.activation())
         return block_model
 
-
-    # linear structure
+    # fixed structure
     model.add(fromrgb(resolution_log2))
     for res in range(resolution_log2, 2, -1):
         model.add(block(res))

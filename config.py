@@ -2,7 +2,7 @@ import tensorflow as tf
 import numpy as np
 
 BUFFER_SIZE = 60000
-BATCH_SIZE = 256
+BATCH_SIZE = 16
 
 EPOCHS = 50
 noise_dim = 100
