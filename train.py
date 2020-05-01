@@ -39,7 +39,7 @@ checkpoint = tf.train.Checkpoint(generator_optimizer=generator_optimizer,
 
 @tf.function
 def train_step(images):
-    latents = tf.random.normal([config.BATCH_SIZE, 512])
+    latents = tf.random.normal([config.BATCH_SIZE, 512, 1])
 
     with tf.GradientTape() as gen_tape, tf.GradientTape() as disc_tape:
         generated_images = generator_model(latents, training=True)

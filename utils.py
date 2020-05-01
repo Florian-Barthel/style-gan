@@ -4,9 +4,6 @@ import numpy as np
 
 
 def blur2d(x, f=[1, 2, 1], normalize=True, flip=False, stride=1):
-    assert x.shape.ndims == 4 and all(dim.value is not None for dim in x.shape[1:])
-    assert isinstance(stride, int) and stride >= 1
-
     # Finalize filter kernel.
     f = np.array(f, dtype=np.float32)
     if f.ndim == 1:
@@ -34,9 +31,6 @@ def blur2d(x, f=[1, 2, 1], normalize=True, flip=False, stride=1):
 
 
 def upscale2d(x, factor=2, gain=1):
-    assert x.shape.ndims == 4 and all(dim.value is not None for dim in x.shape[1:])
-    assert isinstance(factor, int) and factor >= 1
-
     # Apply gain.
     if gain != 1:
         x *= gain
@@ -46,11 +40,12 @@ def upscale2d(x, factor=2, gain=1):
         return x
 
     # Upscale using tf.tile().
-    s = x.shape
-    x = tf.reshape(x, [-1, s[1], s[2], 1, s[3], 1])
-    x = tf.tile(x, [1, 1, 1, factor, 1, factor])
-    x = tf.reshape(x, [-1, s[1], s[2] * factor, s[3] * factor])
-    return x
+    s = tf.shape(x)
+
+    reshaped1 = tf.reshape(x, [-1, s[1], s[2], 1, s[3], 1])
+    tiled = tf.tile(reshaped1, [1, factor, factor, 1, 1, 1])
+    reshaped2 = tf.reshape(tiled, [-1, s[1] * factor, s[2] * factor, s[3]])
+    return reshaped2
 
 
 def downscale2d(x, factor=2, gain=1):

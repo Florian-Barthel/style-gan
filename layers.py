@@ -2,103 +2,80 @@ import tensorflow as tf
 import utils
 
 
-def cast(dtype):
+def cast(dtype, shape):
     def func(x):
         tf.cast(x, dtype)
-    return tf.keras.layers.Lambda(func)
+
+    return tf.keras.layers.Lambda(func, input_shape=shape, output_shape=shape)
 
 
-def tile(shape):
-    def func(x):
-        tf.tile(x, shape)
-    return tf.keras.layers.Lambda(func)
+class Tile(tf.keras.layers.Layer):
+    def __init__(self, shape):
+        super(Tile, self).__init__()
+        self.shape = shape
+
+    def call(self, inputs):
+        return tf.tile(inputs, self.shape)
 
 
 def conv2d(filters, kernel_size):
     return tf.keras.layers.Conv2D(filters=filters,
                                   kernel_size=kernel_size,
                                   kernel_initializer='random_uniform',
-                                  use_bias=False,
-                                  activation='linear')
+                                  use_bias=True,
+                                  activation='linear',
+                                  padding='same')
 
 
 def dense(units):
-    return tf.keras.layers.Dense(units=units, activation=None, use_bias=False)
+    return tf.keras.layers.Dense(units=units, activation=None, use_bias=True)
 
 
 def activation():
     return tf.keras.layers.Activation('relu')
 
 
-def apply_bias():
+def upscale():
+    return tf.keras.layers.UpSampling2D(size=(2, 2), data_format='channels_last', interpolation='bilinear')
+
+
+def apply_noise(weight, noise):
     def func(x):
-        lrmul = 1
-        b = tf.get_variable('bias', shape=[x.shape[1]], initializer=tf.initializers.zeros()) * lrmul
-        b = tf.cast(b, x.dtype)
-        if len(x.shape) == 2:
-            return x + b
-        return x + tf.reshape(b, [1, -1, 1, 1])
-    return tf.keras.layers.Lambda(func)
-
-
-def downscale2d():
-    factor = 2
-    @tf.custom_gradient
-    def func(x):
-        y = utils.downscale2d(x, factor)
-
-        @tf.custom_gradient
-        def grad(dy):
-            dx = utils.upscale2d(dy, factor, gain=1 / factor ** 2)
-            return dx, lambda ddx: utils.downscale2d(ddx, factor)
-
-        return y, grad
-    return tf.keras.layers.Lambda(func)
-
-def upscale2d():
-    factor = 2
-
-    @tf.custom_gradient
-    def func(x):
-        y = utils.upscale2d(x, factor)
-
-        @tf.custom_gradient
-        def grad(dy):
-            dx = utils.downscale2d(dy, factor, gain=factor ** 2)
-            return dx, lambda ddx: utils.upscale2d(ddx, factor)
-
-        return y, grad
-
-    return tf.keras.layers.Lambda(func)
-
-
-def apply_noise():
-    def func(x):
-        noise = tf.random_normal([tf.shape(x)[0], 1, x.shape[2], x.shape[3]], dtype=x.dtype)
-        weight = tf.get_variable('weight', shape=[x.shape[1].value], initializer=tf.initializers.zeros())
         return x + noise * tf.reshape(tf.cast(weight, x.dtype), [1, -1, 1, 1])
+
     return tf.keras.layers.Lambda(func)
 
 
-def instance_norm():
-    def func(x):
+class ApplyNoise(tf.keras.layers.Layer):
+    def __init__(self, noise, weight):
+        super(ApplyNoise, self).__init__()
+        self.weight = weight
+        self.noise = noise
+
+    def call(self, inputs):
+        return inputs + self.noise * tf.reshape(tf.cast(self.weight, inputs.dtype), [1, 1, 1, -1])
+
+
+class InstanceNorm(tf.keras.layers.Layer):
+    def __init__(self):
+        super(InstanceNorm, self).__init__()
+
+    def call(self, inputs):
         epsilon = 1e-8
-        orig_dtype = x.dtype
-        x = tf.cast(x, tf.float32)
+        orig_dtype = inputs.dtype
+        x = tf.cast(inputs, tf.float32)
         x -= tf.reduce_mean(x, axis=[2, 3], keepdims=True)
         epsilon = tf.constant(epsilon, dtype=x.dtype, name='epsilon')
-        x *= tf.rsqrt(tf.reduce_mean(tf.square(x), axis=[2, 3], keepdims=True) + epsilon)
+        x = x / tf.sqrt(tf.reduce_mean(tf.square(x), axis=[2, 3], keepdims=True) + epsilon)
         x = tf.cast(x, orig_dtype)
         return x
-
-    return tf.keras.layers.Lambda(func)
 
 
 def pixel_norm():
     def func(x):
         epsilon = 1e-8
         epsilon = tf.constant(epsilon, dtype=x.dtype, name='epsilon')
-        return x * tf.rsqrt(tf.reduce_mean(tf.square(x), axis=1, keepdims=True) + epsilon)
+        return x / tf.sqrt(tf.reduce_mean(tf.square(x), axis=1, keepdims=True) + epsilon)
 
     return tf.keras.layers.Lambda(func)
 
@@ -139,26 +116,35 @@ def minibatch_stddev():
         y = tf.cast(y, x.dtype)  # [Mn11]  Cast back to original data type.
         y = tf.tile(y, [group_size, 1, s[2], s[3]])  # [NnHW]  Replicate over group and pixels.
         return tf.concat([x, y], axis=1)  # [NCHW]  Append as new fmap.
+
     return tf.keras.layers.Lambda(func)
 
 
-def style_mod():
-    def func(x, style):
+class StyleMod(tf.keras.layers.Layer):
+    def __init__(self):
+        super(StyleMod, self).__init__()
+
+    def call(self, inputs):
+        x = inputs[0]
+        style = inputs[1]
         style = tf.reshape(style, [-1, 2, x.shape[1]] + [1] * (len(x.shape) - 2))
         return x * (style[:, 0] + 1) + style[:, 1]
+        return x
 
-    return tf.keras.layers.Lambda(func)
 
-
-def style_mod():
-    def func(x, style):
-        style = tf.reshape(style, [-1, 2, x.shape[1]] + [1] * (len(x.shape) - 2))
-        return x * (style[:, 0] + 1) + style[:, 1]
-
-    return tf.keras.layers.Lambda(func)
 
 
 def index_slice(layer_idx):
     def func(x):
         return x[:, layer_idx]
+
     return tf.keras.layers.Lambda(func)
+
+
+class IndexSlice(tf.keras.layers.Layer):
+    def __init__(self, index):
+        super(IndexSlice, self).__init__()
+        self.index = index
+
+    def call(self, inputs):
+        return inputs[:, self.index]

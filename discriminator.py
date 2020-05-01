@@ -19,7 +19,7 @@ def discriminator_model(
     resolution_log2 = int(np.log2(resolution))
     assert resolution == 2 ** resolution_log2 and resolution >= 4
 
-    def nf(stage):
+    def number_filters(stage):
         return min(int(fmap_base / (2.0 ** (stage * fmap_decay))), fmap_max)
 
     # images_in.set_shape([None, num_channels, resolution, resolution])
@@ -28,35 +28,35 @@ def discriminator_model(
     # Building blocks.
     def fromrgb(resolution):  # res = 2..resolution_log2
         fromrgb_model = tf.keras.models.Sequential()
-        fromrgb_model.add(layers.conv2D(filters=nf(resolution - 1), kernel_size=(1, 1)))
-        fromrgb_model.add(layers.apply_bias())
+        fromrgb_model.add(layers.conv2d(filters=number_filters(resolution - 1), kernel_size=(1, 1)))
+        fromrgb_model.add(layers.apply_bias(tf.Variable(tf.zeros(number_filters(resolution - 1)), trainable=True, dtype=dtype)))
         fromrgb_model.add(layers.activation())
         return fromrgb_model
 
     def block(resolution):  # res = 2..resolution_log2
         block_model = tf.keras.models.Sequential()
         if resolution >= 3:  # 8x8 and up
-            block_model.add(layers.conv2d(filters=nf(resolution - 1), kernel_size=(3, 3)))
-            block_model.add(layers.apply_bias())
+            block_model.add(layers.conv2d(filters=number_filters(resolution - 1), kernel_size=(3, 3)))
+            block_model.add(layers.apply_bias(tf.Variable(tf.zeros(number_filters(resolution - 1)), trainable=True, dtype=dtype)))
             block_model.add(layers.activation())
 
             block_model.add(layers.blur2d())
-            block_model.add(layers.conv2d(filters=nf(resolution - 2), kernel_size=(3, 3)))
-            block_model.add(layers.apply_bias())
+            block_model.add(layers.conv2d(filters=number_filters(resolution - 2), kernel_size=(3, 3)))
+            block_model.add(layers.apply_bias(tf.Variable(tf.zeros(number_filters(resolution - 2)), trainable=True, dtype=dtype)))
             block_model.add(layers.downscale2d())
         else:  # 4x4
             if mbstd_group_size > 1:
                 block_model.add(layers.minibatch_stddev())
-            block_model.add(layers.conv2D(filters=nf(resolution - 1), kernel_size=(3, 3)))
-            block_model.add(layers.apply_bias())
+            block_model.add(layers.conv2d(filters=number_filters(resolution - 1), kernel_size=(3, 3)))
+            block_model.add(layers.apply_bias(tf.Variable(tf.zeros(number_filters(resolution - 1)), trainable=True, dtype=dtype)))
             block_model.add(layers.activation())
 
-            block_model.add(layers.dense(units=nf(resolution - 2)))
-            block_model.add(layers.apply_bias())
+            block_model.add(layers.dense(units=number_filters(resolution - 2)))
+            block_model.add(layers.apply_bias(tf.Variable(tf.zeros(number_filters(resolution - 2)), trainable=True, dtype=dtype)))
             block_model.add(layers.activation())
 
             block_model.add(layers.dense(units=1))
-            block_model.add(layers.apply_bias())
+            block_model.add(layers.apply_bias(tf.Variable(tf.zeros(1), trainable=True, dtype=dtype)))
             block_model.add(layers.activation())
         return block_model
 
@@ -67,3 +67,6 @@ def discriminator_model(
     model.add(block(2))
 
     return model
+
+model = discriminator_model()
+tf.keras.utils.plot_model(model, to_file='model.png')
