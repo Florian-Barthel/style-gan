@@ -26,24 +26,18 @@ def discriminator_model(
     def block(x, layer_index):
         layer_res = 2 ** (layer_index + 2)
         half_layer_res = layer_res / 2
-        print('BLOCK {} x {}'.format(layer_res, layer_res))
         if layer_res >= 8:
             conv1 = layers.conv2d(filters=number_filters(layer_res), kernel_size=(3, 3))(x)
-            print('\tconv2d (1) filters: {}, kernel: (3, 3), shape: {}'.format(number_filters(layer_res), conv1.shape))
             act = layers.activation()(conv1)
             blur = layers.blur2d()(act)
             conv2 = layers.conv2d(filters=number_filters(half_layer_res), kernel_size=(3, 3))(blur)
-            print('\tconv2d (1) filters: {}, kernel: (3, 3), shape: {}'.format(number_filters(half_layer_res), conv2.shape))
             block_result = layers.downscale()(conv2)
         else:
             conv1 = layers.conv2d(filters=number_filters(layer_res), kernel_size=(3, 3))(x)
-            print('\tconv2d (1) filters: {}, kernel: (3, 3), shape: {}'.format(number_filters(layer_res), conv1.shape))
             act1 = layers.activation()(conv1)
             dense1 = layers.dense(units=number_filters(half_layer_res))(act1)
-            print('\tdense (1) filters: {}, shape: {}'.format(number_filters(half_layer_res), dense1.shape))
             act2 = layers.activation()(dense1)
             dense2 = layers.dense(units=1)(act2)
-            print('\tdense (1) filters: {}, shape: {}'.format(1, dense2.shape))
             block_result = layers.activation()(dense2)
         return block_result
 
