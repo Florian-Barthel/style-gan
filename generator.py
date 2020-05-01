@@ -75,7 +75,7 @@ def generator_model(mapping_layers=8,
     result = layer_epilogue(result)
 
     # remaining layers
-    def block(layer_index, x):
+    def block(x, layer_index):
         layer_res = 2 ** (layer_index + 2)
         print('BLOCK {} x {}'.format(layer_res, layer_res))
         upscale = layers.upscale()(x)
@@ -92,10 +92,10 @@ def generator_model(mapping_layers=8,
 
     # TODO: use Progressive Growing GAN Architecture
     for layer_idx in range(num_layers - 1):
-        result = block(layer_idx + 1, result)
+        result = block(result, layer_idx + 1)
     output = to_rgb(result)
     return tf.keras.models.Model(inputs=latents_input, outputs=output)
 
 
 model = generator_model()
-tf.keras.utils.plot_model(model, to_file='model.png', show_shapes=True, show_layer_names=True, dpi=150)
+tf.keras.utils.plot_model(model, to_file='models/generator_model.png', show_shapes=True, show_layer_names=True, dpi=150)

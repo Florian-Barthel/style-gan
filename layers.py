@@ -39,6 +39,10 @@ def upscale():
     return tf.keras.layers.UpSampling2D(size=(2, 2), data_format='channels_last', interpolation='bilinear')
 
 
+def downscale():
+    return tf.keras.layers.MaxPooling2D(pool_size=(2, 2), data_format='channels_last')
+
+
 def apply_noise(weight, noise):
     def func(x):
         return x + noise * tf.reshape(tf.cast(weight, x.dtype), [1, -1, 1, 1])
@@ -99,28 +103,6 @@ def blur2d():
     return tf.keras.layers.Lambda(func)
 
 
-def minibatch_stddev():
-    def func(x):
-        group_size = 4
-        num_new_features = 1
-        group_size = tf.minimum(group_size,
-                                tf.shape(x)[0])  # Minibatch must be divisible by (or smaller than) group_size.
-        s = x.shape  # [NCHW]  Input shape.
-        y = tf.reshape(x, [group_size, -1, num_new_features, s[1] // num_new_features, s[2], s[
-            3]])  # [GMncHW] Split minibatch into M groups of size G. Split channels into n channel groups c.
-        y = tf.cast(y, tf.float32)  # [GMncHW] Cast to FP32.
-        y -= tf.reduce_mean(y, axis=0, keepdims=True)  # [GMncHW] Subtract mean over group.
-        y = tf.reduce_mean(tf.square(y), axis=0)  # [MncHW]  Calc variance over group.
-        y = tf.sqrt(y + 1e-8)  # [MncHW]  Calc stddev over group.
-        y = tf.reduce_mean(y, axis=[2, 3, 4], keepdims=True)  # [Mn111]  Take average over fmaps and pixels.
-        y = tf.reduce_mean(y, axis=[2])  # [Mn11] Split channels into c channel groups
-        y = tf.cast(y, x.dtype)  # [Mn11]  Cast back to original data type.
-        y = tf.tile(y, [group_size, 1, s[2], s[3]])  # [NnHW]  Replicate over group and pixels.
-        return tf.concat([x, y], axis=1)  # [NCHW]  Append as new fmap.
-
-    return tf.keras.layers.Lambda(func)
-
-
 class StyleMod(tf.keras.layers.Layer):
     def __init__(self):
         super(StyleMod, self).__init__()
@@ -130,16 +112,6 @@ class StyleMod(tf.keras.layers.Layer):
         style = inputs[1]
         style = tf.reshape(style, [-1, 2, x.shape[1]] + [1] * (len(x.shape) - 2))
         return x * (style[:, 0] + 1) + style[:, 1]
-        return x
-
-
-
-
-def index_slice(layer_idx):
-    def func(x):
-        return x[:, layer_idx]
-
-    return tf.keras.layers.Lambda(func)
 
 
 class IndexSlice(tf.keras.layers.Layer):

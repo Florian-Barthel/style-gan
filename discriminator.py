@@ -5,68 +5,56 @@ import layers
 
 
 def discriminator_model(
-        # images_in,  # First input: Images [minibatch, channel, height, width].
-        resolution=32,  # Input resolution. Overridden based on dataset.
-        fmap_base=1024,  # Overall multiplier for the number of feature maps.
-        fmap_decay=1.0,  # log2 feature map reduction when doubling the resolution.
-        fmap_max=512,  # Maximum number of feature maps in any layer.
-        mbstd_group_size=4,  # Group size for the minibatch standard deviation layer, 0 = disable.
-        dtype='float32',  # Data type to use for activations and outputs.
-        **_kwargs):  # Ignore unrecognized keyword args.
-
-    model = tf.keras.models.Sequential()
+        resolution=64,
+        dtype='float32',
+        filter_multiplier=1):
 
     resolution_log2 = int(np.log2(resolution))
-    assert resolution == 2 ** resolution_log2 and resolution >= 4
+    num_layers = resolution_log2 - 2
+    input_image = tf.keras.Input(shape=[resolution, resolution, 3], dtype=dtype)
 
-    def number_filters(stage):
-        return min(int(fmap_base / (2.0 ** (stage * fmap_decay))), fmap_max)
+    def number_filters(res):
+        res = res / 4
+        fn_result = int(resolution / res) * filter_multiplier
+        return fn_result
 
-    # images_in.set_shape([None, num_channels, resolution, resolution])
-    # images_in = tf.cast(images_in, dtype)
+    def from_rgb(x, res):
+        conv = layers.conv2d(filters=number_filters(res), kernel_size=(1, 1))(x)
+        act = layers.activation()(conv)
+        return act
 
-    # Building blocks.
-    def fromrgb(resolution):  # res = 2..resolution_log2
-        fromrgb_model = tf.keras.models.Sequential()
-        fromrgb_model.add(layers.conv2d(filters=number_filters(resolution - 1), kernel_size=(1, 1)))
-        fromrgb_model.add(layers.apply_bias(tf.Variable(tf.zeros(number_filters(resolution - 1)), trainable=True, dtype=dtype)))
-        fromrgb_model.add(layers.activation())
-        return fromrgb_model
+    def block(x, layer_index):
+        layer_res = 2 ** (layer_index + 2)
+        half_layer_res = layer_res / 2
+        print('BLOCK {} x {}'.format(layer_res, layer_res))
+        if layer_res >= 8:
+            conv1 = layers.conv2d(filters=number_filters(layer_res), kernel_size=(3, 3))(x)
+            print('\tconv2d (1) filters: {}, kernel: (3, 3), shape: {}'.format(number_filters(layer_res), conv1.shape))
+            act = layers.activation()(conv1)
+            blur = layers.blur2d()(act)
+            conv2 = layers.conv2d(filters=number_filters(half_layer_res), kernel_size=(3, 3))(blur)
+            print('\tconv2d (1) filters: {}, kernel: (3, 3), shape: {}'.format(number_filters(half_layer_res), conv2.shape))
+            block_result = layers.downscale()(conv2)
+        else:
+            conv1 = layers.conv2d(filters=number_filters(layer_res), kernel_size=(3, 3))(x)
+            print('\tconv2d (1) filters: {}, kernel: (3, 3), shape: {}'.format(number_filters(layer_res), conv1.shape))
+            act1 = layers.activation()(conv1)
+            dense1 = layers.dense(units=number_filters(half_layer_res))(act1)
+            print('\tdense (1) filters: {}, shape: {}'.format(number_filters(half_layer_res), dense1.shape))
+            act2 = layers.activation()(dense1)
+            dense2 = layers.dense(units=1)(act2)
+            print('\tdense (1) filters: {}, shape: {}'.format(1, dense2.shape))
+            block_result = layers.activation()(dense2)
+        return block_result
 
-    def block(resolution):  # res = 2..resolution_log2
-        block_model = tf.keras.models.Sequential()
-        if resolution >= 3:  # 8x8 and up
-            block_model.add(layers.conv2d(filters=number_filters(resolution - 1), kernel_size=(3, 3)))
-            block_model.add(layers.apply_bias(tf.Variable(tf.zeros(number_filters(resolution - 1)), trainable=True, dtype=dtype)))
-            block_model.add(layers.activation())
+    # TODO: use Progressive Growing GAN Architecture
+    result = from_rgb(input_image, resolution)
+    for layer_idx in range(num_layers, 0, -1):
+        result = block(result, layer_idx)
+    output = block(result, 0)
 
-            block_model.add(layers.blur2d())
-            block_model.add(layers.conv2d(filters=number_filters(resolution - 2), kernel_size=(3, 3)))
-            block_model.add(layers.apply_bias(tf.Variable(tf.zeros(number_filters(resolution - 2)), trainable=True, dtype=dtype)))
-            block_model.add(layers.downscale2d())
-        else:  # 4x4
-            if mbstd_group_size > 1:
-                block_model.add(layers.minibatch_stddev())
-            block_model.add(layers.conv2d(filters=number_filters(resolution - 1), kernel_size=(3, 3)))
-            block_model.add(layers.apply_bias(tf.Variable(tf.zeros(number_filters(resolution - 1)), trainable=True, dtype=dtype)))
-            block_model.add(layers.activation())
+    return tf.keras.models.Model(inputs=input_image, outputs=output)
 
-            block_model.add(layers.dense(units=number_filters(resolution - 2)))
-            block_model.add(layers.apply_bias(tf.Variable(tf.zeros(number_filters(resolution - 2)), trainable=True, dtype=dtype)))
-            block_model.add(layers.activation())
-
-            block_model.add(layers.dense(units=1))
-            block_model.add(layers.apply_bias(tf.Variable(tf.zeros(1), trainable=True, dtype=dtype)))
-            block_model.add(layers.activation())
-        return block_model
-
-    # fixed structure
-    model.add(fromrgb(resolution_log2))
-    for res in range(resolution_log2, 2, -1):
-        model.add(block(res))
-    model.add(block(2))
-
-    return model
 
 model = discriminator_model()
-tf.keras.utils.plot_model(model, to_file='model.png')
+tf.keras.utils.plot_model(model, to_file='models/discriminator_model.png', show_shapes=True, show_layer_names=True, dpi=150)
