@@ -1,10 +1,13 @@
 import tensorflow as tf
 
-cross_entropy = tf.keras.losses.BinaryCrossentropy(from_logits=True)
 
+def D_wgan(D, G, minibatch_size, reals, resolution, wgan_epsilon=0.001):
+    latents = tf.random.normal([minibatch_size, resolution, 1])
+    fake_images_out = G(latents, training=True)
+    real_scores_out = D(reals, training=True)
+    fake_scores_out = D(fake_images_out, training=True)
+    loss = fake_scores_out - real_scores_out
 
-def loss(real_output, fake_output):
-    real_loss = cross_entropy(tf.ones_like(real_output), real_output)
-    fake_loss = cross_entropy(tf.zeros_like(fake_output), fake_output)
-    total_loss = real_loss + fake_loss
-    return total_loss
+    epsilon_penalty = tf.square(real_scores_out)
+    loss += epsilon_penalty * wgan_epsilon
+    return tf.reduce_sum(loss)

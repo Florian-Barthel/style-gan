@@ -14,12 +14,14 @@ def generator_model(mapping_layers=8,
 
     latents_input = tf.keras.Input(shape=[resolution, 1], dtype=dtype)
     latents = layers.PixelNorm()(latents_input)
+    # TODO: only last dense layer has to have filter_number = mapping_fmaps
     for layer_idx in range(mapping_layers):
         latents = layers.dense(mapping_fmaps)(latents)
         latents = layers.activation()(latents)
 
     resolution_log2 = int(np.log2(resolution))
     num_layers = resolution_log2 - 1
+    # num_styles = num_layers * 2
 
     def number_filters(res):
         res = res / 4
@@ -44,7 +46,7 @@ def generator_model(mapping_layers=8,
         x = layers.InstanceNorm()(x)
 
         style = layers.IndexSlice(epilogue_counter)(latents)
-        style = layers.dense(x.shape[3])(style)
+        style = layers.dense(x.shape[3] * 2)(style)
         epilogue_counter += 1
         x = layers.StyleMod()([x, style])
         return x
@@ -63,8 +65,8 @@ def generator_model(mapping_layers=8,
         upscale = layers.upscale()(x)
         conv1 = layers.conv2d(number_filters(layer_res), (3, 3))(upscale)
         # TODO: create layers for blur
-        blur = layers.blur2d()(conv1)
-        epilogue1 = layer_epilogue(blur)
+        # blur = layers.blur2d()(conv1)
+        epilogue1 = layer_epilogue(conv1)
         conv2 = layers.conv2d(number_filters(layer_res), (3, 3))(epilogue1)
         epilogue2 = layer_epilogue(conv2)
         return epilogue2

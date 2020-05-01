@@ -30,8 +30,8 @@ def discriminator_model(
         if layer_res >= 8:
             conv1 = layers.conv2d(filters=number_filters(layer_res), kernel_size=(3, 3))(x)
             act = layers.activation()(conv1)
-            blur = layers.blur2d()(act)
-            conv2 = layers.conv2d(filters=number_filters(half_layer_res), kernel_size=(3, 3))(blur)
+            # blur = layers.blur2d()(act)
+            conv2 = layers.conv2d(filters=number_filters(half_layer_res), kernel_size=(3, 3))(act)
             block_result = layers.downscale()(conv2)
         else:
             conv1 = layers.conv2d(filters=number_filters(layer_res), kernel_size=(3, 3))(x)
