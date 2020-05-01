@@ -5,13 +5,14 @@ import layers
 
 
 def discriminator_model(
-        resolution=64,
+        resolution=32,
         dtype='float32',
-        filter_multiplier=1):
+        filter_multiplier=1,
+        number_of_channels=1):
 
     resolution_log2 = int(np.log2(resolution))
-    num_layers = resolution_log2 - 2
-    input_image = tf.keras.Input(shape=[resolution, resolution, 3], dtype=dtype)
+    num_layers = resolution_log2
+    input_image = tf.keras.Input(shape=[resolution, resolution, number_of_channels], dtype=dtype)
 
     def number_filters(res):
         res = res / 4
@@ -50,5 +51,5 @@ def discriminator_model(
     return tf.keras.models.Model(inputs=input_image, outputs=output)
 
 
-model = discriminator_model()
-tf.keras.utils.plot_model(model, to_file='models/discriminator_model.png', show_shapes=True, show_layer_names=True, dpi=150)
+# model = discriminator_model()
+# tf.keras.utils.plot_model(model, to_file='models/discriminator_model.png', show_shapes=True, show_layer_names=True, dpi=150)

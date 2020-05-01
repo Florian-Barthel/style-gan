@@ -7,7 +7,7 @@ import os
 import config
 import time
 import matplotlib.pyplot as plt
-
+import tqdm
 
 print(tf.__version__)
 print("Num GPUs Available: ", len(tf.config.experimental.list_physical_devices('GPU')))
@@ -15,15 +15,16 @@ print("Num GPUs Available: ", len(tf.config.experimental.list_physical_devices('
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 
-(train_images, train_labels), (_, _) = tf.keras.datasets.mnist.load_data()
+(train_images, _), (_, _) = tf.keras.datasets.mnist.load_data()
 
 train_images = train_images.reshape(train_images.shape[0], 28, 28, 1).astype('uint8')
 train_images = (train_images - 127.5) / 127.5
+train_images = tf.image.resize(train_images, (32, 32))
 
 train_dataset = tf.data.Dataset.from_tensor_slices(train_images).shuffle(config.BUFFER_SIZE).batch(config.BATCH_SIZE)
 
-generator_model = generator.generator_model()
-discriminator_model = discriminator.discriminator_model()
+generator_model = generator.generator_model(resolution=32)
+discriminator_model = discriminator.discriminator_model(resolution=32)
 
 checkpoint_dir = './training_checkpoints'
 checkpoint_prefix = os.path.join(checkpoint_dir, "ckpt")
@@ -39,7 +40,7 @@ checkpoint = tf.train.Checkpoint(generator_optimizer=generator_optimizer,
 
 @tf.function
 def train_step(images):
-    latents = tf.random.normal([config.BATCH_SIZE, 512, 1])
+    latents = tf.random.normal([config.BATCH_SIZE, 32, 1])
 
     with tf.GradientTape() as gen_tape, tf.GradientTape() as disc_tape:
         generated_images = generator_model(latents, training=True)

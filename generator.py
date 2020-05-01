@@ -6,13 +6,13 @@ epilogue_counter = 0
 
 
 def generator_model(mapping_layers=8,
-                    mapping_fmaps=64,
-                    resolution=64,
+                    mapping_fmaps=32,
+                    resolution=32,
                     filter_multiplier=1,
                     dtype=tf.dtypes.float32,
-                    num_channels=3):
+                    num_channels=1):
 
-    latents_input = tf.keras.Input(shape=[64, 1], dtype=dtype)
+    latents_input = tf.keras.Input(shape=[resolution, 1], dtype=dtype)
     latents = layers.PixelNorm()(latents_input)
     for layer_idx in range(mapping_layers):
         latents = layers.dense(mapping_fmaps)(latents)
@@ -79,5 +79,5 @@ def generator_model(mapping_layers=8,
     return tf.keras.models.Model(inputs=latents_input, outputs=output)
 
 
-model = generator_model()
-tf.keras.utils.plot_model(model, to_file='models/generator_model.png', show_shapes=True, show_layer_names=True, dpi=150)
+# model = generator_model()
+# tf.keras.utils.plot_model(model, to_file='models/generator_model.png', show_shapes=True, show_layer_names=True, dpi=150)

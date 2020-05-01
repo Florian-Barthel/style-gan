@@ -110,8 +110,10 @@ class StyleMod(tf.keras.layers.Layer):
     def call(self, inputs):
         x = inputs[0]
         style = inputs[1]
-        style = tf.reshape(style, [-1, 2, x.shape[1]] + [1] * (len(x.shape) - 2))
-        return x * (style[:, 0] + 1) + style[:, 1]
+        # style = tf.reshape(style, [-1, x.shape[3]] + [1] * (len(x.shape) - 2), 2)
+        style_mean = tf.math.reduce_mean(style)
+        style_stddev = tf.math.reduce_std(style)
+        return style_stddev * x + style_mean
 
 
 class IndexSlice(tf.keras.layers.Layer):

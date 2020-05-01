@@ -1,13 +1,26 @@
 import tensorflow as tf
-import layers
+from PIL import ImageDraw, Image
+import generator
+import matplotlib.pyplot as plt
+import numpy as np
+import discriminator
 
-factor = 2
+num_examples_to_generate = 16
+seed = tf.random.normal([num_examples_to_generate, 32, 1])
 
-x = tf.zeros([1, 4, 4, 512])
-s = tf.shape(x)
+generator_model = generator.generator_model()
+discriminator_model = discriminator.discriminator_model()
 
-reshaped1 = tf.reshape(x, [-1, s[1], s[2], 1, s[3], 1])
-tiled = tf.tile(reshaped1, [1, factor, factor, 1, 1, 1])
-reshaped2 = tf.reshape(tiled, [-1, s[1] * factor, s[2] * factor, s[3]])
+plt.figure(figsize=(4, 4))
+generated_images = generator_model(seed, training=False)
+predictions = discriminator_model(generated_images, training=False)
+print(predictions)
+for i in range(generated_images.shape[0]):
+    plt.subplot(4, 4, i + 1)
+    plt.imshow(generated_images[i, :, :, 0] * 127.5 + 127.5, cmap='gray')
+    plt.axis('off')
 
-print(x)
+plt.savefig('images/generated')
+plt.show()
+
+print('')
