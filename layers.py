@@ -71,13 +71,14 @@ class InstanceNorm(tf.keras.layers.Layer):
         return x
 
 
-def pixel_norm():
-    def func(x):
-        epsilon = 1e-8
-        epsilon = tf.constant(epsilon, dtype=x.dtype, name='epsilon')
-        return x / tf.sqrt(tf.reduce_mean(tf.square(x), axis=1, keepdims=True) + epsilon)
+class PixelNorm(tf.keras.layers.Layer):
+    def __init__(self):
+        super(PixelNorm, self).__init__()
 
-    return tf.keras.layers.Lambda(func)
+    def call(self, inputs):
+        epsilon = 1e-8
+        epsilon = tf.constant(epsilon, dtype=inputs.dtype, name='epsilon')
+        return inputs / tf.sqrt(tf.reduce_mean(tf.square(inputs), axis=1, keepdims=True) + epsilon)
 
 
 def blur2d():

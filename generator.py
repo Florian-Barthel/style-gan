@@ -7,21 +7,23 @@ epilogue_counter = 0
 
 def generator_model(mapping_layers=8,
                     mapping_fmaps=64,
-                    resolution=128,
+                    resolution=64,
+                    filter_multiplier=1,
                     dtype=tf.dtypes.float32,
                     num_channels=3):
 
     latents_input = tf.keras.Input(shape=[64, 1], dtype=dtype)
-    latents = layers.pixel_norm()(latents_input)
+    latents = layers.PixelNorm()(latents_input)
     for layer_idx in range(mapping_layers):
         latents = layers.dense(mapping_fmaps)(latents)
         latents = layers.activation()(latents)
 
     resolution_log2 = int(np.log2(resolution))
-    num_layers = resolution_log2 - 2
+    num_layers = resolution_log2 - 1
 
     def number_filters(res):
-        fn_result = int(resolution / res)
+        res = res / 4
+        fn_result = int(resolution / res) * filter_multiplier
         return fn_result
 
     # noise inputs
@@ -96,4 +98,4 @@ def generator_model(mapping_layers=8,
 
 
 model = generator_model()
-tf.keras.utils.plot_model(model, to_file='model.png', show_shapes=True, show_layer_names=True, dpi=150, expand_nested=True)
+tf.keras.utils.plot_model(model, to_file='model.png', show_shapes=True, show_layer_names=True, dpi=150)
