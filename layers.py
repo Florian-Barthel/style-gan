@@ -133,6 +133,22 @@ class StyleMod(tf.keras.layers.Layer):
         return style_stddev * x + style_mean
 
 
+class StyleMod2(tf.keras.layers.Layer):
+    def __init__(self):
+        super(StyleMod2, self).__init__()
+
+    def call(self, inputs):
+        x = inputs[0]
+        style = inputs[1]
+        style = tf.reshape(style, [-1, 2, 1, 1, x.shape[3]])
+
+        style_s = (style[:, 0, :, :, :] + 1)
+        print('scales', style_s.shape)
+        style_b = style[:, 1, :, :, :]
+        print('bias', style_s.shape)
+        return x * style_s + style_b
+
+
 class IndexSlice(tf.keras.layers.Layer):
     def __init__(self, index):
         super(IndexSlice, self).__init__()

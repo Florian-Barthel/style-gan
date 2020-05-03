@@ -40,7 +40,7 @@ def generator_model(mapping_layers=8,
         x = layers.InstanceNorm()(x)
         style = layers.IndexSlice(layer_index)(latents)
         style = layers.dense(x.shape[3] * 2)(style)
-        x = layers.StyleMod()([x, style])
+        x = layers.StyleMod2()([x, style])
         return x
 
     def block(x, res):

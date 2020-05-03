@@ -56,9 +56,9 @@ def train_both(images, lod):
         real_scores_out = discriminator_model([images, lods], training=True)
         fake_scores_out = discriminator_model([fake_images_out, lods], training=True)
 
-        gen_loss_tensor = generator_loss.G_logistic_nonsaturating(fake_scores_out=fake_scores_out)
-        disc_loss_tensor = discriminator_loss.D_logistic_simplegp(real_scores_out=real_scores_out,
-                                                                  fake_scores_out=fake_scores_out)
+        gen_loss_tensor = generator_loss.cross_entropy_loss(fake_scores_out=fake_scores_out)
+        disc_loss_tensor = discriminator_loss.cross_entropy_loss(real_scores_out=real_scores_out,
+                                                                 fake_scores_out=fake_scores_out)
 
         gen_loss = tf.reduce_mean(gen_loss_tensor)
         disc_loss = tf.reduce_mean(disc_loss_tensor)
@@ -98,11 +98,7 @@ def train(dataset, epochs):
             image_batch = tf.image.resize(image_batch, (lod_res, lod_res))
             image_batch = tf.image.resize(image_batch, (config.resolution, config.resolution))
 
-            # train the discriminator 4 times more than the generator
-            if iteration % 4 == 0:
-                gen_loss, disc_loss, acc_real, acc_fake = train_both(image_batch, lod)
-            else:
-                train_only_discriminator(image_batch, lod)
+            gen_loss, disc_loss, acc_real, acc_fake = train_both(image_batch, lod)
 
             with summary_writer.as_default():
                 tf.summary.scalar('gen_loss', gen_loss, step=generator_optimizer.iterations)
