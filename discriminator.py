@@ -44,7 +44,7 @@ def discriminator_model(
         # x = x + tf.matmul((y - x), tf.clip_by_value(layer_lod, 0.0, 1.0))
 
     # final layer
-    # TODO: Insert mini-batch standard deviation layer here
+    x = layers.MinibatchStdev()(x)
     x = layers.conv2d(filters=num_filters(1), kernel_size=(3, 3))(x)
     x = layers.activation()(x)
     x = layers.dense(units=num_filters(0))(x)

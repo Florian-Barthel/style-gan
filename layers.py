@@ -140,3 +140,42 @@ class IndexSlice(tf.keras.layers.Layer):
 
     def call(self, inputs):
         return inputs[:, self.index]
+
+
+# src: https://machinelearningmastery.com/how-to-train-a-progressive-growing-gan-in-keras-for-synthesizing-faces/
+# mini-batch standard deviation layer
+class MinibatchStdev(tf.keras.layers.Layer):
+    # initialize the layer
+    def __init__(self, **kwargs):
+        super(MinibatchStdev, self).__init__(**kwargs)
+
+    # perform the operation
+    def call(self, inputs):
+        # calculate the mean value for each pixel across channels
+        mean = tf.reduce_mean(inputs, axis=0, keepdims=True)
+        # calculate the squared differences between pixel values and mean
+        squ_diffs = tf.math.square(inputs - mean)
+        # calculate the average of the squared differences (variance)
+        mean_sq_diff = tf.reduce_mean(squ_diffs, axis=0, keepdims=True)
+        # add a small value to avoid a blow-up when we calculate stdev
+        mean_sq_diff += 1e-8
+        # square root of the variance (stdev)
+        stdev = tf.math.sqrt(mean_sq_diff)
+        # calculate the mean standard deviation across each pixel coord
+        mean_pix = tf.reduce_mean(stdev, keepdims=True)
+        # scale this up to be the size of one input feature map for each sample
+        shape = tf.shape(inputs)
+        output = tf.tile(mean_pix, (shape[0], shape[1], shape[2], 1))
+        # concatenate with the output
+        combined = tf.concat([inputs, output], axis=-1)
+        return combined
+
+    # define the output shape of the layer
+    def compute_output_shape(self, input_shape):
+        # create a copy of the input shape as a list
+        input_shape = list(input_shape)
+        # add one to the channel dimension (assume channels-last)
+        input_shape[-1] += 1
+        # convert list to a tuple
+        return tuple(input_shape)
+
