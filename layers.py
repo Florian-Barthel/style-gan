@@ -143,9 +143,7 @@ class StyleMod2(tf.keras.layers.Layer):
         style = tf.reshape(style, [-1, 2, 1, 1, x.shape[3]])
 
         style_s = (style[:, 0, :, :, :] + 1)
-        print('scales', style_s.shape)
         style_b = style[:, 1, :, :, :]
-        print('bias', style_s.shape)
         return x * style_s + style_b
 
 

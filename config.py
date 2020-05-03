@@ -2,7 +2,7 @@ import tensorflow as tf
 
 BUFFER_SIZE = 60000
 # TODO: error with batchsize = 64
-batch_size = 32
+batch_size = 16
 resolution = 32
 
 EPOCHS = 500

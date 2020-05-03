@@ -23,7 +23,7 @@ summary_writer = tf.summary.create_file_writer(logdir=log_dir)
 
 train_images = train_images.reshape(train_images.shape[0], 28, 28, 1).astype('uint8')
 train_images = (train_images - 127.5) / 127.5
-train_images = tf.image.resize(train_images, (config.resolution, config.resolution))
+# train_images = tf.image.resize(train_images, (config.resolution, config.resolution))
 
 train_dataset = tf.data.Dataset.from_tensor_slices(train_images).shuffle(config.BUFFER_SIZE).batch(config.batch_size)
 
@@ -94,11 +94,13 @@ def train(dataset, epochs):
     for epoch in range(epochs):
         start = time.time()
         for image_batch in dataset:
-            lod_res = int(2 ** (np.floor(lod) + 3))
-            image_batch = tf.image.resize(image_batch, (lod_res, lod_res))
-            image_batch = tf.image.resize(image_batch, (config.resolution, config.resolution))
+            lod_res = int(2 ** (np.floor(lod) + 2))
+            resize1 = tf.image.resize(image_batch, [lod_res, lod_res],
+                                      method=tf.image.ResizeMethod.AREA)
+            resize2 = tf.image.resize(resize1, [config.resolution, config.resolution],
+                                      method=tf.image.ResizeMethod.AREA)
 
-            gen_loss, disc_loss, acc_real, acc_fake = train_both(image_batch, lod)
+            gen_loss, disc_loss, acc_real, acc_fake = train_both(resize2, lod)
 
             with summary_writer.as_default():
                 tf.summary.scalar('gen_loss', gen_loss, step=generator_optimizer.iterations)
@@ -139,5 +141,22 @@ def generate_and_save_images(epoch, test_input, lod):
     plt.savefig('images/image_at_epoch_{:04d}.png'.format(epoch))
     plt.show()
 
+
+def draw_labels(image_batch):
+    plt.figure(figsize=(2, 3))
+    for i in range(6):
+        lod_res = int(2 ** (np.floor(i) + 2))
+        resampled_image = tf.image.resize(image_batch[3], [lod_res, lod_res],
+                                          method=tf.image.ResizeMethod.AREA)
+        fit_for_discriminator = tf.image.resize(resampled_image, [config.resolution, config.resolution],
+                                                method=tf.image.ResizeMethod.AREA)
+        plt.subplot(2, 3, i + 1)
+        plt.imshow(fit_for_discriminator[:, :, 0] * 127.5 + 127.5, cmap='gray')
+        plt.title('{} x {}'.format(lod_res, lod_res), fontdict={'fontsize': 8})
+        plt.axis('off')
+    plt.savefig('images/label_resolutions_disc_input.png', dpi=1000)
+    plt.show()
+
+# draw_labels(next(iter(train_dataset)))
 
 train(train_dataset, config.EPOCHS)
