@@ -10,16 +10,14 @@ import matplotlib.pyplot as plt
 import numpy as np
 import datetime
 
-
 print(tf.__version__)
 print("Num GPUs Available: ", len(tf.config.experimental.list_physical_devices('GPU')))
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 
-log_dir = "logs/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+log_dir = "logs/" + datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 summary_writer = tf.summary.create_file_writer(logdir=log_dir)
-
 
 (train_images, _), (_, _) = tf.keras.datasets.mnist.load_data()
 
@@ -50,47 +48,69 @@ checkpoint = tf.train.Checkpoint(generator_optimizer=generator_optimizer,
 
 
 @tf.function
-def train_step(images, lod):
+def train_both(images, lod):
     with tf.GradientTape() as gen_tape, tf.GradientTape() as disc_tape:
-        gen_loss_tensor = generator_loss.G_wgan(D=discriminator_model,
-                                         G=generator_model,
-                                         minibatch_size=config.batch_size,
-                                         resolution=config.resolution,
-                                         lod=lod)
+        latents = tf.random.normal([config.batch_size, config.resolution, 1])
+        lods = np.full((config.batch_size, 1), lod)
+        fake_images_out = generator_model([latents, lods], training=True)
+        real_scores_out = discriminator_model([images, lods], training=True)
+        fake_scores_out = discriminator_model([fake_images_out, lods], training=True)
 
-        disc_loss_tensor = discriminator_loss.D_wgan(D=discriminator_model,
-                                              G=generator_model,
-                                              minibatch_size=config.batch_size,
-                                              reals=images,
-                                              resolution=config.resolution,
-                                              lod=lod)
+        gen_loss_tensor = generator_loss.G_logistic_nonsaturating(fake_scores_out=fake_scores_out)
+        disc_loss_tensor = discriminator_loss.D_logistic_simplegp(real_scores_out=real_scores_out,
+                                                                  fake_scores_out=fake_scores_out)
 
         gen_loss = tf.reduce_mean(gen_loss_tensor)
         disc_loss = tf.reduce_mean(disc_loss_tensor)
+
+        acc_real = tf.reduce_sum(real_scores_out) / config.batch_size
+        acc_fake = (config.batch_size - tf.reduce_sum(fake_scores_out)) / config.batch_size
 
     gradients_of_generator = gen_tape.gradient(gen_loss, generator_model.trainable_variables)
     gradients_of_discriminator = disc_tape.gradient(disc_loss, discriminator_model.trainable_variables)
 
     generator_optimizer.apply_gradients(zip(gradients_of_generator, generator_model.trainable_variables))
     discriminator_optimizer.apply_gradients(zip(gradients_of_discriminator, discriminator_model.trainable_variables))
-    return gen_loss, disc_loss
+    return gen_loss, disc_loss, acc_real, acc_fake
+
+
+@tf.function
+def train_only_discriminator(images, lod):
+    with tf.GradientTape() as disc_tape:
+        lods = np.full((config.batch_size, 1), lod)
+        real_scores_out = discriminator_model([images, lods], training=True)
+        disc_loss_tensor = discriminator_loss.D_logistic_simplegp_only_real(real_scores_out=real_scores_out)
+        disc_loss = tf.reduce_mean(disc_loss_tensor)
+    gradients_of_discriminator = disc_tape.gradient(disc_loss, discriminator_model.trainable_variables)
+    discriminator_optimizer.apply_gradients(zip(gradients_of_discriminator, discriminator_model.trainable_variables))
 
 
 def train(dataset, epochs):
     lod = 0.0
     gen_loss = 0
     disc_loss = 0
+    increase_lod = False
+    iteration = 0
     for epoch in range(epochs):
         start = time.time()
         for image_batch in dataset:
             lod_res = int(2 ** (np.floor(lod) + 3))
             image_batch = tf.image.resize(image_batch, (lod_res, lod_res))
             image_batch = tf.image.resize(image_batch, (config.resolution, config.resolution))
-            gen_loss, disc_loss = train_step(image_batch, lod)
+
+            # train the discriminator 4 times more than the generator
+            if iteration % 4 == 0:
+                gen_loss, disc_loss, acc_real, acc_fake = train_both(image_batch, lod)
+            else:
+                train_only_discriminator(image_batch, lod)
+
             with summary_writer.as_default():
                 tf.summary.scalar('gen_loss', gen_loss, step=generator_optimizer.iterations)
                 tf.summary.scalar('disc_loss', disc_loss, step=discriminator_optimizer.iterations)
-            # print(gen_loss, disc_loss)
+                tf.summary.scalar('acc_real', acc_real, step=generator_optimizer.iterations)
+                tf.summary.scalar('acc_fake', acc_fake, step=discriminator_optimizer.iterations)
+
+            iteration += 1
 
         # if epoch % 10:
         generate_and_save_images(epoch + 1,
@@ -99,7 +119,11 @@ def train(dataset, epochs):
         print('lod:', lod)
         print('gen_loss:', gen_loss)
         print('dis_loss:', disc_loss)
-        lod += 0.5
+        if increase_lod:
+            lod += 0.02
+
+        if (epoch + 1) % 50 == 0:
+            increase_lod = not increase_lod
 
         if (epoch + 1) % 15 == 0:
             checkpoint.save(file_prefix=checkpoint_prefix)
