@@ -50,14 +50,31 @@ def apply_noise(weight, noise):
     return tf.keras.layers.Lambda(func)
 
 
-class ApplyNoise(tf.keras.layers.Layer):
-    def __init__(self, noise, weight):
-        super(ApplyNoise, self).__init__()
-        self.weight = weight
+# class ApplyNoise(tf.keras.layers.Layer):
+#     def __init__(self, noise, weight):
+#         super(ApplyNoise, self).__init__()
+#         self.weight = weight
+#         self.noise = noise
+#
+#     def call(self, inputs):
+#         return inputs + self.noise * tf.reshape(tf.cast(self.weight, inputs.dtype), [1, 1, 1, -1])
+
+
+class ApplyNoiseWithWeights(tf.keras.layers.Layer):
+    def __init__(self, noise):
+        super(ApplyNoiseWithWeights, self).__init__()
         self.noise = noise
 
+    def build(self, input_shape):
+        # Create a trainable weight variable for this layer.
+        self.noise_weight = self.add_weight(name='noise_weight',
+                                            shape=(input_shape[3]),
+                                            initializer='zeros',
+                                            trainable=True)
+        super(ApplyNoiseWithWeights, self).build(input_shape)
+
     def call(self, inputs):
-        return inputs + self.noise * tf.reshape(tf.cast(self.weight, inputs.dtype), [1, 1, 1, -1])
+        return inputs + self.noise * self.noise_weight
 
 
 class InstanceNorm(tf.keras.layers.Layer):
@@ -68,9 +85,9 @@ class InstanceNorm(tf.keras.layers.Layer):
         epsilon = 1e-8
         orig_dtype = inputs.dtype
         x = tf.cast(inputs, tf.float32)
-        x -= tf.reduce_mean(x, axis=[2, 3], keepdims=True)
+        x -= tf.reduce_mean(x, axis=[1, 2], keepdims=True)
         epsilon = tf.constant(epsilon, dtype=x.dtype, name='epsilon')
-        x = x / tf.sqrt(tf.reduce_mean(tf.square(x), axis=[2, 3], keepdims=True) + epsilon)
+        x = x / tf.sqrt(tf.reduce_mean(tf.square(x), axis=[1, 2], keepdims=True) + epsilon)
         x = tf.cast(x, orig_dtype)
         return x
 
@@ -85,22 +102,22 @@ class PixelNorm(tf.keras.layers.Layer):
         return inputs / tf.sqrt(tf.reduce_mean(tf.square(inputs), axis=1, keepdims=True) + epsilon)
 
 
-def blur2d():
-    f = [1, 2, 1]
-    normalize = True
-
-    @tf.custom_gradient
-    def func(x):
-        y = utils.blur2d(x, f, normalize)
-
-        @tf.custom_gradient
-        def grad(dy):
-            dx = utils.blur2d(dy, f, normalize, flip=True)
-            return dx, lambda ddx: utils.blur2d(ddx, f, normalize)
-
-        return y, grad
-
-    return tf.keras.layers.Lambda(func)
+# def blur2d():
+#     f = [1, 2, 1]
+#     normalize = True
+#
+#     @tf.custom_gradient
+#     def func(x):
+#         y = utils.blur2d(x, f, normalize)
+#
+#         @tf.custom_gradient
+#         def grad(dy):
+#             dx = utils.blur2d(dy, f, normalize, flip=True)
+#             return dx, lambda ddx: utils.blur2d(ddx, f, normalize)
+#
+#         return y, grad
+#
+#     return tf.keras.layers.Lambda(func)
 
 
 class StyleMod(tf.keras.layers.Layer):

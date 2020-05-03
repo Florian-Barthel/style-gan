@@ -7,6 +7,8 @@ import os
 import config
 import time
 import matplotlib.pyplot as plt
+import numpy as np
+import datetime
 
 
 print(tf.__version__)
@@ -14,6 +16,10 @@ print("Num GPUs Available: ", len(tf.config.experimental.list_physical_devices('
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+
+log_dir = "logs/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+summary_writer = tf.summary.create_file_writer(logdir=log_dir)
+
 
 (train_images, _), (_, _) = tf.keras.datasets.mnist.load_data()
 
@@ -23,8 +29,13 @@ train_images = tf.image.resize(train_images, (config.resolution, config.resoluti
 
 train_dataset = tf.data.Dataset.from_tensor_slices(train_images).shuffle(config.BUFFER_SIZE).batch(config.batch_size)
 
-generator_model = generator.generator_model(mapping_fmaps=config.resolution, resolution=config.resolution)
-discriminator_model = discriminator.discriminator_model(resolution=config.resolution)
+generator_model = generator.generator_model(mapping_fmaps=config.resolution,
+                                            resolution=config.resolution,
+                                            fmap_base=32,
+                                            num_channels=1)
+discriminator_model = discriminator.discriminator_model(resolution=config.resolution,
+                                                        fmap_base=32,
+                                                        number_of_channels=1)
 
 checkpoint_dir = './training_checkpoints'
 checkpoint_prefix = os.path.join(checkpoint_dir, "ckpt")
@@ -39,10 +50,23 @@ checkpoint = tf.train.Checkpoint(generator_optimizer=generator_optimizer,
 
 
 @tf.function
-def train_step(images):
+def train_step(images, lod):
     with tf.GradientTape() as gen_tape, tf.GradientTape() as disc_tape:
-        gen_loss = generator_loss.G_wgan(discriminator_model, generator_model, config.batch_size, config.resolution)
-        disc_loss = discriminator_loss.D_wgan(discriminator_model, generator_model, config.batch_size, images, config.resolution)
+        gen_loss_tensor = generator_loss.G_wgan(D=discriminator_model,
+                                         G=generator_model,
+                                         minibatch_size=config.batch_size,
+                                         resolution=config.resolution,
+                                         lod=lod)
+
+        disc_loss_tensor = discriminator_loss.D_wgan(D=discriminator_model,
+                                              G=generator_model,
+                                              minibatch_size=config.batch_size,
+                                              reals=images,
+                                              resolution=config.resolution,
+                                              lod=lod)
+
+        gen_loss = tf.reduce_mean(gen_loss_tensor)
+        disc_loss = tf.reduce_mean(disc_loss_tensor)
 
     gradients_of_generator = gen_tape.gradient(gen_loss, generator_model.trainable_variables)
     gradients_of_discriminator = disc_tape.gradient(disc_loss, discriminator_model.trainable_variables)
@@ -53,15 +77,29 @@ def train_step(images):
 
 
 def train(dataset, epochs):
+    lod = 0.0
+    gen_loss = 0
+    disc_loss = 0
     for epoch in range(epochs):
         start = time.time()
         for image_batch in dataset:
-            gen_loss, disc_loss = train_step(image_batch)
+            lod_res = int(2 ** (np.floor(lod) + 3))
+            image_batch = tf.image.resize(image_batch, (lod_res, lod_res))
+            image_batch = tf.image.resize(image_batch, (config.resolution, config.resolution))
+            gen_loss, disc_loss = train_step(image_batch, lod)
+            with summary_writer.as_default():
+                tf.summary.scalar('gen_loss', gen_loss, step=generator_optimizer.iterations)
+                tf.summary.scalar('disc_loss', disc_loss, step=discriminator_optimizer.iterations)
             # print(gen_loss, disc_loss)
-            real_images = image_batch
-            generate_and_save_images(epoch + 1,
-                                     config.seed,
-                                     real_images)
+
+        # if epoch % 10:
+        generate_and_save_images(epoch + 1,
+                                 config.seed,
+                                 lod)
+        print('lod:', lod)
+        print('gen_loss:', gen_loss)
+        print('dis_loss:', disc_loss)
+        lod += 0.5
 
         if (epoch + 1) % 15 == 0:
             checkpoint.save(file_prefix=checkpoint_prefix)
@@ -69,10 +107,9 @@ def train(dataset, epochs):
         print('Time for epoch {} is {} sec'.format(epoch + 1, time.time() - start))
 
 
-def generate_and_save_images(epoch, test_input, real_image):
-    predictions = generator_model(test_input, training=False)
-    # print(tf.reduce_sum(discriminator_model(predictions, training=False)))
-    # print(tf.reduce_sum(discriminator_model(real_image, training=False)))
+def generate_and_save_images(epoch, test_input, lod):
+    lods = np.full((test_input.shape[0], 1), lod)
+    predictions = generator_model([test_input, lods], training=False)
 
     plt.figure(figsize=(4, 4))
     for i in range(predictions.shape[0]):

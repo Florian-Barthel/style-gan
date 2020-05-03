@@ -1,13 +1,15 @@
 import tensorflow as tf
+import numpy as np
 
-
-def D_wgan(D, G, minibatch_size, reals, resolution, wgan_epsilon=0.001):
+def D_wgan(D, G, minibatch_size, reals, resolution, lod, wgan_epsilon=0.001):
     latents = tf.random.normal([minibatch_size, resolution, 1])
-    fake_images_out = G(latents, training=True)
-    real_scores_out = D(reals, training=True)
-    fake_scores_out = D(fake_images_out, training=True)
+    lods = np.full((minibatch_size, 1), lod)
+    fake_images_out = G([latents, lods], training=True)
+    real_scores_out = D([reals, lods], training=True)
+    fake_scores_out = D([fake_images_out, lods], training=True)
     loss = fake_scores_out - real_scores_out
 
     epsilon_penalty = tf.square(real_scores_out)
     loss += epsilon_penalty * wgan_epsilon
-    return tf.reduce_sum(loss)
+    return loss
+    # return tf.reduce_sum(loss)
