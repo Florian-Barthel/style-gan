@@ -3,6 +3,7 @@ import numpy as np
 import layers
 
 
+
 def generator_model(mapping_layers=8,
                     mapping_fmaps=32,
                     resolution=32,
@@ -15,10 +16,10 @@ def generator_model(mapping_layers=8,
 
     latents_input = tf.keras.Input(shape=[resolution, 1], dtype=dtype)
     latents = layers.PixelNorm()(latents_input)
-    lod_input = tf.keras.Input(shape=[1], dtype=dtype, name='lod')
+    # lod_input = tf.keras.Input(shape=[1], dtype=dtype, name='lod')
 
     # quick fix to remove the batch dimension
-    lod_in = tf.reduce_max(lod_input)
+    lod_in = 1# tf.reduce_max(lod_input)
 
     # TODO: only last dense layer has to have filter_number = mapping_fmaps
     for layer_idx in range(mapping_layers):
@@ -63,17 +64,37 @@ def generator_model(mapping_layers=8,
     result = layers.conv2d(num_filters(1), (3, 3))(result)
     result = layer_epilogue(result, 1)
 
-    images_skip = to_rgb(result)
-    for res in range(3, resolution_log2 + 1):
-        lod = resolution_log2 - res
-        result = block(result, res)
-        img = to_rgb(result)
-        images_skip = layers.upscale()(images_skip)
-        layer_lod = lod_in - lod
-        output = img + (images_skip - img) * tf.clip_by_value(layer_lod, 0.0, 1.0)
+    # images_skip = to_rgb(result)
+    # for res in range(3, resolution_log2 + 1):
+    #     lod = resolution_log2 - res
+    #     if lod >= 0:
+    #         result = block(result, res)
+    #         img = to_rgb(result)
+    #         images_skip = layers.upscale()(images_skip)
+    #         layer_lod = lod_in - lod
+    #         output = img + (images_skip - img) * tf.clip_by_value(layer_lod, 0.0, 1.0)
+    #
+    # return tf.keras.models.Model(inputs=[latents_input, lod_input], outputs=output)
 
-    return tf.keras.models.Model(inputs=[latents_input, lod_input], outputs=output)
+    def lerp(a, b, t):
+        return a + (b - a) * t
+
+    # Recursive structure: complex but efficient.
+    def cset(new_cond, cur_lambda, new_lambda):
+        return lambda: tf.cond(new_cond, cur_lambda, new_lambda)
+
+    def grow(x, res, lod):
+        y = block(x, res)
+        img = lambda: layers.upscale(2 ** lod)(to_rgb(y))
+        img = cset((lod_in > lod), lambda: layers.upscale(2 ** lod)(lerp(to_rgb(y), layers.upscale()(to_rgb(x)), lod_in - lod)), img)
+        if lod > 0:
+            img = cset((lod_in < lod), lambda: grow(y, res + 1, lod - 1), img)
+        return img()
+
+    output = grow(result, 3, resolution_log2 - 3)
+
+    return tf.keras.models.Model(inputs=[latents_input], outputs=output)
 
 
-# model = generator_model()
-# tf.keras.utils.plot_model(model, to_file='models/generator_model.png', show_shapes=True, show_layer_names=True, dpi=150)
+model = generator_model()
+tf.keras.utils.plot_model(model, to_file='models/generator_model.png', show_shapes=True, show_layer_names=True, dpi=150)

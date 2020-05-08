@@ -1,5 +1,4 @@
 import tensorflow as tf
-import utils
 
 
 def cast(dtype, shape):
@@ -24,19 +23,22 @@ def conv2d(filters, kernel_size):
                                   kernel_initializer='random_uniform',
                                   use_bias=True,
                                   activation='linear',
-                                  padding='same')
+                                  padding='same',
+                                  bias_initializer='zeros')
 
 
 def dense(units):
-    return tf.keras.layers.Dense(units=units, activation=None, use_bias=True)
+    return tf.keras.layers.Dense(units=units, activation=None, use_bias=True,
+                                 kernel_initializer='random_uniform',
+                                 bias_initializer='zeros')
 
 
 def activation():
     return tf.keras.layers.Activation('relu')
 
 
-def upscale():
-    return tf.keras.layers.UpSampling2D(size=(2, 2), data_format='channels_last', interpolation='bilinear')
+def upscale(faktor=2):
+    return tf.keras.layers.UpSampling2D(size=(faktor, faktor), data_format='channels_last', interpolation='bilinear')
 
 
 def downscale():
@@ -68,8 +70,8 @@ class ApplyNoiseWithWeights(tf.keras.layers.Layer):
     def build(self, input_shape):
         # Create a trainable weight variable for this layer.
         self.noise_weight = self.add_weight(name='noise_weight',
-                                            shape=(input_shape[3]),
-                                            initializer='zeros',
+                                            shape=[input_shape[3]],
+                                            initializer='uniform',
                                             trainable=True)
         super(ApplyNoiseWithWeights, self).build(input_shape)
 
@@ -141,7 +143,6 @@ class StyleMod2(tf.keras.layers.Layer):
         x = inputs[0]
         style = inputs[1]
         style = tf.reshape(style, [-1, 2, 1, 1, x.shape[3]])
-
         style_s = (style[:, 0, :, :, :] + 1)
         style_b = style[:, 1, :, :, :]
         return x * style_s + style_b
