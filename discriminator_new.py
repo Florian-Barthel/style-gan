@@ -1,7 +1,6 @@
 import tensorflow as tf
-import utils
-import numpy as np
 import layers
+import numpy as np
 
 
 class Discriminator(tf.keras.models.Model):
@@ -13,46 +12,36 @@ class Discriminator(tf.keras.models.Model):
         self.resolution_log2 = int(np.log2(resolution))
         self.num_layers = self.resolution_log2 * 2 - 2
 
-    def __call__(self, inputs):
+        # Layers
+        self.std_dev = layers.MinibatchStdev()
+        self.from_rgb_first = layers.FromRGB(self.resolution_log2, self.fmap_base)
+        self.blocks = dict()
+        self.from_rgb_downscaled = dict()
+        for res in range(self.resolution_log2, 2, -1):
+            self.blocks[res] = layers.DiscBlock(res, self.fmap_base)
+            self.from_rgb_downscaled[res] = layers.FromRGB(res - 1, self.fmap_base)
+        self.last_block = layers.LastDiscBlock(self.fmap_base)
+
+        # Functions
+        self.downscale = layers.downscale()
+
+    def call(self, inputs):
         image_input = inputs[0]
         lod_input = inputs[1]
 
-        # lod_counter = int(np.ceil(lod_input))
-        lod_remainder = lod_input - int(lod_input)
+        lod_remainder = lod_input - np.floor(lod_input)
         fist_layer = True
 
-        x = self.from_rgb(image_input, self.resolution_log2)
+        x = self.from_rgb_first(image_input)
         for res in range(min(int(np.ceil(lod_input)) + 2, self.resolution_log2), 2, -1):
-
             if fist_layer and lod_remainder > 0:
-                downscaled_image = layers.downscale()(image_input)
-                y = self.from_rgb(downscaled_image, res - 1)
-                x = self.block(x, res)
+                downscaled_image = self.downscale(image_input)
+                y = self.from_rgb_downscaled[res](downscaled_image)
+                x = self.blocks[res](x)
                 x = x + (y - x) * lod_remainder
             else:
-                x = self.block(x, res)
+                x = self.blocks[res](x)
             fist_layer = False
 
-        x = layers.MinibatchStdev()(x)
-        x = layers.conv2d(filters=self.num_filters(1), kernel_size=(3, 3))(x)
-        x = layers.activation()(x)
-        x = layers.dense(units=self.num_filters(0))(x)
-        x = layers.activation()(x)
-        x = layers.dense(units=1)(x)
-        scores = layers.activation()(x)
+        scores = self.last_block(x)
         return scores
-
-    def num_filters(self, stage):
-        return int(self.fmap_base / (2.0 ** stage))
-
-    def from_rgb(self, x, res):
-        x = layers.conv2d(filters=self.num_filters(res - 1), kernel_size=(1, 1))(x)
-        x = layers.activation()(x)
-        return x
-
-    def block(self, x, res):
-        x = layers.conv2d(filters=self.num_filters(res - 1), kernel_size=(3, 3))(x)
-        x = layers.activation()(x)
-        x = layers.conv2d(filters=self.num_filters(res - 2), kernel_size=(3, 3))(x)
-        x = layers.downscale()(x)
-        return x

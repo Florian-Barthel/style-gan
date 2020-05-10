@@ -1,13 +1,6 @@
 import tensorflow as tf
 
 
-def cast(dtype, shape):
-    def func(x):
-        tf.cast(x, dtype)
-
-    return tf.keras.layers.Lambda(func, input_shape=shape, output_shape=shape)
-
-
 class Tile(tf.keras.layers.Layer):
     def __init__(self, shape):
         super(Tile, self).__init__()
@@ -17,6 +10,10 @@ class Tile(tf.keras.layers.Layer):
         return tf.tile(inputs, self.shape)
 
 
+def calc_num_filters(stage, fmap_base):
+    return int(fmap_base / (2.0 ** stage))
+
+
 def conv2d(filters, kernel_size):
     return tf.keras.layers.Conv2D(filters=filters,
                                   kernel_size=kernel_size,
@@ -24,13 +21,172 @@ def conv2d(filters, kernel_size):
                                   use_bias=True,
                                   activation='linear',
                                   padding='same',
-                                  bias_initializer='zeros')
+                                  bias_initializer='zeros',
+                                  data_format="channels_last")
 
 
-def dense(units):
-    return tf.keras.layers.Dense(units=units, activation=None, use_bias=True,
-                                 kernel_initializer='random_uniform',
-                                 bias_initializer='zeros')
+class Mapping(tf.keras.layers.Layer):
+    def __init__(self, num_layers, num_filters):
+        super(Mapping, self).__init__()
+        self.num_layers = num_layers
+        self.layers = []
+
+        for _ in range(self.num_layers):
+            self.layers.append(tf.keras.layers.Dense(
+                units=num_filters,
+                activation='relu',
+                use_bias=True,
+                kernel_initializer='random_uniform',
+                bias_initializer='zeros'))
+
+    def call(self, x):
+        for i in range(self.num_layers):
+            x = self.layers[i](x)
+        return x
+
+
+class FirstGenBlock(tf.keras.layers.Layer):
+    def __init__(self, fmap_base, type):
+        super(FirstGenBlock, self).__init__()
+        self.fmap_base = fmap_base
+        self.type = type
+        self.epilogue_1 = LayerEpilogue(layer_index=0, type=type)
+        self.conv = conv2d(filters=calc_num_filters(1, fmap_base), kernel_size=(3, 3))
+        self.epilogue_2 = LayerEpilogue(layer_index=1, type=type)
+
+    def build(self, input_shape):
+        batchsize = input_shape[0]
+        self.constant = tf.Variable(tf.random.normal([1, 4, 4, calc_num_filters(1, self.fmap_base)]), trainable=True,
+                                    dtype=self.type)
+        self.constant = tf.tile(self.constant, [batchsize, 1, 1, 1])
+        super(FirstGenBlock, self).build(input_shape)
+
+    def call(self, latents):
+        x = self.epilogue_1([self.constant, latents])
+        x = self.conv(x)
+        return self.epilogue_2([x, latents])
+
+
+class GenBlock(tf.keras.layers.Layer):
+    def __init__(self, res, fmap_base, type):
+        super(GenBlock, self).__init__()
+        self.upscale = upscale(2)
+        self.conv1 = conv2d(filters=calc_num_filters(res - 1, fmap_base), kernel_size=(3, 3))
+        self.epilogue_1 = LayerEpilogue(layer_index=res * 2 - 4, type=type)
+        self.conv2 = conv2d(filters=calc_num_filters(res - 1, fmap_base), kernel_size=(3, 3))
+        self.epilogue_2 = LayerEpilogue(layer_index=res * 2 - 3, type=type)
+
+    def call(self, inputs):
+        x = inputs[0]
+        latents = inputs[1]
+        x = self.upscale(x)
+        x = self.conv1(x)
+        x = self.epilogue_1([x, latents])
+        x = self.conv2(x)
+        return self.epilogue_2([x, latents])
+
+
+class DiscBlock(tf.keras.layers.Layer):
+    def __init__(self, res, fmap_base):
+        super(DiscBlock, self).__init__()
+        self.conv1 = conv2d(filters=calc_num_filters(res - 1, fmap_base), kernel_size=(3, 3))
+        self.activation = activation()
+        self.conv2 = conv2d(filters=calc_num_filters(res - 2, fmap_base), kernel_size=(3, 3))
+        self.downscale = downscale()
+
+    def call(self, x):
+        x = self.conv1(x)
+        x = self.activation(x)
+        x = self.conv2(x)
+        return self.downscale(x)
+
+
+class LastDiscBlock(tf.keras.layers.Layer):
+    def __init__(self, fmap_base):
+        super(LastDiscBlock, self).__init__()
+        self.stddev = MinibatchStdev()
+        self.conv1 = conv2d(filters=calc_num_filters(1, fmap_base), kernel_size=(3, 3))
+        self.activation1 = activation()
+        self.conv2 = conv2d(filters=calc_num_filters(0, fmap_base), kernel_size=(3, 3))
+        self.activation2 = activation()
+        self.dense = tf.keras.layers.Dense(
+            units=1,
+            activation='linear',
+            use_bias=True,
+            kernel_initializer='random_uniform',
+            bias_initializer='zeros')
+        self.activation3 = activation()
+
+    def call(self, x):
+        x = self.stddev(x)
+        x = self.conv1(x)
+        x = self.activation1(x)
+        x = self.conv2(x)
+        x = self.activation2(x)
+        x = self.dense(x)
+        return self.activation3(x)
+
+
+class LayerEpilogue(tf.keras.layers.Layer):
+    def __init__(self, layer_index, type=tf.dtypes.float32):
+        super(LayerEpilogue, self).__init__()
+        self.apply_noise = ApplyNoiseWithWeights(layer_index, type)
+        self.activation = activation()
+        self.instance_norm = InstanceNorm()
+        self.slice = IndexSlice(layer_index)
+        self.style_mod = StyleMod()
+
+    def build(self, input_shape):
+        self.dense = tf.keras.layers.Dense(
+            units=input_shape[0][3] * 2,
+            activation='linear',
+            use_bias=True,
+            kernel_initializer='random_uniform',
+            bias_initializer='zeros')
+        super(LayerEpilogue, self).build(input_shape)
+
+    def call(self, inputs):
+        x = inputs[0]
+        style = inputs[1]
+        x = self.apply_noise(x)
+        x = self.activation(x)
+        x = self.instance_norm(x)
+        style = self.slice(style)
+        style = self.dense(style)
+        return self.style_mod([x, style])
+
+
+class ToRGB(tf.keras.layers.Layer):
+    def __init__(self, num_channels):
+        super(ToRGB, self).__init__()
+        self.conv = tf.keras.layers.Conv2D(filters=num_channels,
+                                           kernel_size=(1, 1),
+                                           kernel_initializer='random_uniform',
+                                           use_bias=True,
+                                           activation='linear',
+                                           padding='same',
+                                           bias_initializer='zeros',
+                                           data_format="channels_last")
+
+    def call(self, x):
+        y = self.conv(x)
+        return y
+
+
+class FromRGB(tf.keras.layers.Layer):
+    def __init__(self, res, fmap_base):
+        super(FromRGB, self).__init__()
+        self.conv = tf.keras.layers.Conv2D(filters=calc_num_filters(res - 1, fmap_base=fmap_base),
+                                           kernel_size=(1, 1),
+                                           kernel_initializer='random_uniform',
+                                           use_bias=True,
+                                           activation='relu',
+                                           padding='same',
+                                           bias_initializer='zeros',
+                                           data_format="channels_last")
+
+    def call(self, x):
+        return self.conv(x)
 
 
 def activation():
@@ -52,23 +208,16 @@ def apply_noise(weight, noise):
     return tf.keras.layers.Lambda(func)
 
 
-# class ApplyNoise(tf.keras.layers.Layer):
-#     def __init__(self, noise, weight):
-#         super(ApplyNoise, self).__init__()
-#         self.weight = weight
-#         self.noise = noise
-#
-#     def call(self, inputs):
-#         return inputs + self.noise * tf.reshape(tf.cast(self.weight, inputs.dtype), [1, 1, 1, -1])
-
-
 class ApplyNoiseWithWeights(tf.keras.layers.Layer):
-    def __init__(self, noise):
+    def __init__(self, layer_idx, type=tf.float32):
         super(ApplyNoiseWithWeights, self).__init__()
-        self.noise = noise
+        noise_res = layer_idx // 2 + 2
+        self.noise_shape = [1, 2 ** noise_res, 2 ** noise_res, 1]
+        self.type = type
+        self.noise = tf.Variable(tf.random.normal(self.noise_shape), trainable=False, dtype=self.type)
+        self.noise_weight = None
 
     def build(self, input_shape):
-        # Create a trainable weight variable for this layer.
         self.noise_weight = self.add_weight(name='noise_weight',
                                             shape=[input_shape[3]],
                                             initializer='uniform',
@@ -95,49 +244,18 @@ class InstanceNorm(tf.keras.layers.Layer):
 
 
 class PixelNorm(tf.keras.layers.Layer):
-    def __init__(self):
+    def __init__(self, type):
         super(PixelNorm, self).__init__()
+        epsilon = 1e-8
+        self.epsilon = tf.constant(epsilon, dtype=type, name='epsilon')
 
     def call(self, inputs):
-        epsilon = 1e-8
-        epsilon = tf.constant(epsilon, dtype=inputs.dtype, name='epsilon')
-        return inputs / tf.sqrt(tf.reduce_mean(tf.square(inputs), axis=1, keepdims=True) + epsilon)
-
-
-# def blur2d():
-#     f = [1, 2, 1]
-#     normalize = True
-#
-#     @tf.custom_gradient
-#     def func(x):
-#         y = utils.blur2d(x, f, normalize)
-#
-#         @tf.custom_gradient
-#         def grad(dy):
-#             dx = utils.blur2d(dy, f, normalize, flip=True)
-#             return dx, lambda ddx: utils.blur2d(ddx, f, normalize)
-#
-#         return y, grad
-#
-#     return tf.keras.layers.Lambda(func)
+        return inputs / tf.sqrt(tf.reduce_mean(tf.square(inputs), axis=1, keepdims=True) + self.epsilon)
 
 
 class StyleMod(tf.keras.layers.Layer):
     def __init__(self):
         super(StyleMod, self).__init__()
-
-    def call(self, inputs):
-        x = inputs[0]
-        style = inputs[1]
-        # style = tf.reshape(style, [-1, x.shape[3]] + [1] * (len(x.shape) - 2), 2)
-        style_mean = tf.math.reduce_mean(style)
-        style_stddev = tf.math.reduce_std(style)
-        return style_stddev * x + style_mean
-
-
-class StyleMod2(tf.keras.layers.Layer):
-    def __init__(self):
-        super(StyleMod2, self).__init__()
 
     def call(self, inputs):
         x = inputs[0]
@@ -158,39 +276,23 @@ class IndexSlice(tf.keras.layers.Layer):
 
 
 # src: https://machinelearningmastery.com/how-to-train-a-progressive-growing-gan-in-keras-for-synthesizing-faces/
-# mini-batch standard deviation layer
 class MinibatchStdev(tf.keras.layers.Layer):
-    # initialize the layer
     def __init__(self, **kwargs):
         super(MinibatchStdev, self).__init__(**kwargs)
 
-    # perform the operation
     def call(self, inputs):
-        # calculate the mean value for each pixel across channels
         mean = tf.reduce_mean(inputs, axis=0, keepdims=True)
-        # calculate the squared differences between pixel values and mean
         squ_diffs = tf.math.square(inputs - mean)
-        # calculate the average of the squared differences (variance)
         mean_sq_diff = tf.reduce_mean(squ_diffs, axis=0, keepdims=True)
-        # add a small value to avoid a blow-up when we calculate stdev
         mean_sq_diff += 1e-8
-        # square root of the variance (stdev)
         stdev = tf.math.sqrt(mean_sq_diff)
-        # calculate the mean standard deviation across each pixel coord
         mean_pix = tf.reduce_mean(stdev, keepdims=True)
-        # scale this up to be the size of one input feature map for each sample
         shape = tf.shape(inputs)
         output = tf.tile(mean_pix, (shape[0], shape[1], shape[2], 1))
-        # concatenate with the output
         combined = tf.concat([inputs, output], axis=-1)
         return combined
 
-    # define the output shape of the layer
     def compute_output_shape(self, input_shape):
-        # create a copy of the input shape as a list
         input_shape = list(input_shape)
-        # add one to the channel dimension (assume channels-last)
         input_shape[-1] += 1
-        # convert list to a tuple
         return tuple(input_shape)
-
