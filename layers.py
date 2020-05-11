@@ -201,13 +201,6 @@ def downscale():
     return tf.keras.layers.MaxPooling2D(pool_size=(2, 2), data_format='channels_last')
 
 
-def apply_noise(weight, noise):
-    def func(x):
-        return x + noise * tf.reshape(tf.cast(weight, x.dtype), [1, -1, 1, 1])
-
-    return tf.keras.layers.Lambda(func)
-
-
 class ApplyNoiseWithWeights(tf.keras.layers.Layer):
     def __init__(self, layer_idx, type=tf.float32):
         super(ApplyNoiseWithWeights, self).__init__()
@@ -231,23 +224,18 @@ class ApplyNoiseWithWeights(tf.keras.layers.Layer):
 class InstanceNorm(tf.keras.layers.Layer):
     def __init__(self):
         super(InstanceNorm, self).__init__()
+        self.epsilon = tf.Variable(1e-8, trainable=False)
 
-    def call(self, inputs):
-        epsilon = 1e-8
-        orig_dtype = inputs.dtype
-        x = tf.cast(inputs, tf.float32)
+    def call(self, x):
         x -= tf.reduce_mean(x, axis=[1, 2], keepdims=True)
-        epsilon = tf.constant(epsilon, dtype=x.dtype, name='epsilon')
-        x = x / tf.sqrt(tf.reduce_mean(tf.square(x), axis=[1, 2], keepdims=True) + epsilon)
-        x = tf.cast(x, orig_dtype)
+        x = x / tf.sqrt(tf.reduce_mean(tf.square(x), axis=[1, 2], keepdims=True) + self.epsilon)
         return x
 
 
 class PixelNorm(tf.keras.layers.Layer):
-    def __init__(self, type):
+    def __init__(self):
         super(PixelNorm, self).__init__()
-        epsilon = 1e-8
-        self.epsilon = tf.constant(epsilon, dtype=type, name='epsilon')
+        self.epsilon = tf.Variable(1e-8, trainable=False)
 
     def call(self, inputs):
         return inputs / tf.sqrt(tf.reduce_mean(tf.square(inputs), axis=1, keepdims=True) + self.epsilon)

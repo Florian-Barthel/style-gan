@@ -30,7 +30,6 @@ class Generator(tf.keras.models.Model):
         # Functions
         self.upscale = layers.upscale(2)
 
-    @tf.function
     def call(self, inputs):
         latents_input = inputs[0]
         lod_input = inputs[1]

@@ -55,9 +55,8 @@ checkpoint = tf.train.Checkpoint(generator_optimizer=generator_optimizer,
 
 
 @tf.function
-def train_both(images, lod):
+def train_both(images, latents, lod):
     with tf.GradientTape() as gen_tape, tf.GradientTape() as disc_tape:
-        latents = np.random.rand(config.batch_size, config.latent_size, 1) * 2 - 1
         fake_images_out = generator_model([latents, lod])
         real_scores = discriminator_model([images, lod])
         fake_scores = discriminator_model([fake_images_out, lod])
@@ -88,9 +87,12 @@ def train(dataset, epochs):
             lod_res = int(2 ** (np.floor(lod) + 2))
             resized_batch = tf.image.resize(image_batch, [lod_res, lod_res],
                                             method=tf.image.ResizeMethod.AREA)
-
-
-            gen_loss, disc_loss, acc_real, acc_fake, grad_gen, grad_dis = train_both(resized_batch, lod)
+            latents = tf.Variable(np.random.rand(config.batch_size, config.latent_size, 1) * 2 - 1,
+                                  dtype=tf.dtypes.float32,
+                                  trainable=False)
+            gen_loss, disc_loss, acc_real, acc_fake, grad_gen, grad_dis = train_both(resized_batch,
+                                                                                     latents,
+                                                                                     np.float32(lod))
 
             with summary_writer.as_default():
                 tf.summary.scalar('gen_loss', gen_loss, step=generator_optimizer.iterations)
@@ -107,11 +109,13 @@ def train(dataset, epochs):
         print('lod:', lod)
         print('gen_loss:', gen_loss)
         print('dis_loss:', disc_loss)
-        if increase_lod and lod < config.max_lod:
-            lod = np.float32(lod + config.lod_increase)
 
         if (epoch + 1) % config.epochs_per_lod == 0:
             increase_lod = not increase_lod
+
+        if increase_lod and lod < config.max_lod:
+            lod = lod + config.lod_increase
+
 
         if (epoch + 1) % 15 == 0:
             checkpoint.save(file_prefix=checkpoint_prefix)
