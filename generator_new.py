@@ -19,13 +19,18 @@ class Generator(tf.keras.models.Model):
         self.mapping_layers = layers.Mapping(num_mapping_layers, mapping_fmaps)
         self.first_gen_block = layers.FirstGenBlock(fmap_base=fmap_base, type=type)
         self.blocks = dict()
+        self.to_rgb_first = layers.ToRGB(num_channels=num_channels)
         self.to_rgb_new = dict()
         self.to_rgb_old = dict()
-        self.to_rgb_last = layers.ToRGB(num_channels=num_channels)
+        self.to_rgb_last = dict()
+        self.to_rgb_last_mix = dict()
         for res in range(3, self.resolution_log2 + 1):
+            self.to_rgb_old[str(res)] = layers.ToRGB(num_channels=num_channels)
             self.blocks[str(res)] = layers.GenBlock(res=res, fmap_base=fmap_base, type=type)
             self.to_rgb_new[str(res)] = layers.ToRGB(num_channels=num_channels)
-            self.to_rgb_old[str(res)] = layers.ToRGB(num_channels=num_channels)
+            self.to_rgb_last[str(res)] = layers.ToRGB(num_channels=num_channels)
+            self.to_rgb_last_mix[str(res)] = layers.ToRGB(num_channels=num_channels)
+
 
         # Functions
         self.upscale = layers.upscale(2)
@@ -37,7 +42,7 @@ class Generator(tf.keras.models.Model):
         latents = self.mapping_layers(latents_input)
 
         x = self.first_gen_block(latents)
-
+        result = self.to_rgb_first(x)
         lod_counter = int(np.ceil(lod_input))
         lod_remainder = lod_input - np.floor(lod_input)
         if int(np.ceil(lod_input)) > self.resolution_log2:
@@ -50,7 +55,9 @@ class Generator(tf.keras.models.Model):
                 x = self.blocks[str(res)]([x, latents])
                 new = self.to_rgb_new[str(res)](x)
                 x = new + (prev - new) * (1 - lod_remainder)
+                result = self.to_rgb_last_mix[str(res)](x)
             else:
                 x = self.blocks[str(res)]([x, latents])
+                result = self.to_rgb_last[str(res)](x)
             lod_counter -= 1
-        return self.to_rgb_last(x)
+        return result

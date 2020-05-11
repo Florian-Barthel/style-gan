@@ -166,7 +166,7 @@ class ToRGB(tf.keras.layers.Layer):
                                            activation='linear',
                                            padding='same',
                                            bias_initializer='zeros',
-                                           data_format="channels_last")
+                                           data_format='channels_last')
 
     def call(self, x):
         y = self.conv(x)

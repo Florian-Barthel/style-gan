@@ -75,6 +75,23 @@ def train_both(images, latents, lod):
     return Gen_loss, Disc_loss, acc_real, acc_fake, gradients_of_generator, gradients_of_discriminator
 
 
+@tf.function
+def init(seed, zero):
+    lod = config.max_lod
+    with tf.GradientTape() as gen_tape, tf.GradientTape() as disc_tape:
+        lod_res = int(2 ** (np.floor(lod) + 2))
+
+        images = generator_model([seed, np.float32(lod)])
+        predictions = discriminator_model([images, np.float32(lod)])
+
+        grad_gen = gen_tape.gradient(zero, generator_model.trainable_variables)
+        grad_disc = disc_tape.gradient(zero, discriminator_model.trainable_variables)
+
+        generator_optimizer.apply_gradients(zip(grad_gen, generator_model.trainable_variables))
+        discriminator_optimizer.apply_gradients(zip(grad_disc, discriminator_model.trainable_variables))
+        print(lod_res)
+
+
 def train(dataset, epochs):
     lod = np.float32(0.0)
     gen_loss = 0
@@ -116,7 +133,6 @@ def train(dataset, epochs):
         if increase_lod and lod < config.max_lod:
             lod = lod + config.lod_increase
 
-
         if (epoch + 1) % 15 == 0:
             checkpoint.save(file_prefix=checkpoint_prefix)
 
@@ -124,12 +140,13 @@ def train(dataset, epochs):
 
 
 def generate_and_save_images(epoch, test_input, lod):
-    predictions = generator_model([test_input, lod])
+    images = generator_model([test_input, lod])
+    predictions = discriminator_model([images, lod])
 
     plt.figure(figsize=(4, 4))
     for i in range(config.num_examples_to_generate):
         plt.subplot(4, 4, i + 1)
-        plt.imshow(predictions[i, :, :, 0] * 127.5 + 127.5, cmap='gray')
+        plt.imshow(images[i, :, :, 0] * 127.5 + 127.5, cmap='gray')
         plt.axis('off')
     plt.savefig('images/image_at_epoch_{:04d}.png'.format(epoch))
     plt.show()
@@ -152,5 +169,10 @@ def generate_and_save_images(epoch, test_input, lod):
 
 
 # draw_labels(next(iter(train_dataset)))
+seed = tf.Variable(np.random.rand(config.batch_size, config.latent_size, 1) * 2 - 1,
+                   dtype=tf.dtypes.float32,
+                   trainable=False)
+zero = tf.Variable(0, dtype=tf.dtypes.float32, trainable=False)
+init(seed, zero)
 
 train(train_dataset, config.EPOCHS)

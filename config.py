@@ -6,13 +6,13 @@ BUFFER_SIZE = 60000
 batch_size = 32
 resolution = 32
 latent_size = 32
-num_mapping_layers = 32
+num_mapping_layers = 8
 mapping_fmaps = 32
 fmap_base = 32
 
 epochs_per_lod = 2
 lod_increase = np.float32(1 / epochs_per_lod)
-max_lod = int(np.log2(resolution)) - 3
+max_lod = int(np.log2(resolution)) - 2
 
 EPOCHS = 500
 num_examples_to_generate = 16
