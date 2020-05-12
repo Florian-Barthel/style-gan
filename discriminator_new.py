@@ -9,8 +9,13 @@ class Discriminator(tf.keras.models.Model):
         self.fmap_base = fmap_base
         self.type = type
         self.num_channels = num_channels
-        self.resolution_log2 = int(np.log2(resolution))
-        self.num_layers = self.resolution_log2 * 2 - 2
+        self.resolution_tensor = tf.Variable(resolution, dtype=tf.dtypes.float32, trainable=False)
+        self.resolution_log2 = tf.cast(
+            tf.math.log(self.resolution_tensor) / tf.math.log(
+                tf.Variable(2, dtype=tf.dtypes.float32, trainable=False)),
+            dtype=tf.dtypes.int32)
+        self.zero = tf.Variable(0, dtype=type, trainable=False)
+        self.counter =tf.Variable(0, dtype=tf.dtypes.int32, trainable=False)
 
         # Layers
         self.std_dev = layers.MinibatchStdev()
@@ -24,21 +29,28 @@ class Discriminator(tf.keras.models.Model):
         self.from_rgb_first[2] = layers.FromRGB(2, self.fmap_base)
         self.last_block = layers.LastDiscBlock(self.fmap_base)
 
+
         # Functions
         self.downscale = layers.downscale()
 
-    def call(self, inputs):
+    @tf.function
+    def __call__(self, inputs):
         image_input = inputs[0]
         lod_input = inputs[1]
 
-        lod_remainder = lod_input - np.floor(lod_input)
+        lod_remainder = lod_input - tf.math.floor(lod_input)
         fist_layer = True
 
-        lod_res = int(np.ceil(lod_input)) + 2
-        x = self.from_rgb_first[lod_res](image_input)
+        lod_res = tf.cast(tf.math.ceil(lod_input), dtype=tf.dtypes.int32) + 2
+
+        # Quick fix for: "TypeError: Tensor is unhashable if Tensor equality is enabled"
+        for res in range(self.resolution_log2 + 1):
+            if tf.equal(lod_res, res):
+                x = self.from_rgb_first[res](image_input)
+
         for res in range(min(lod_res, self.resolution_log2), 2, -1):
             x = self.blocks[res](x)
-            if fist_layer and lod_remainder > 0:
+            if fist_layer and tf.math.greater(lod_remainder, 0):
                 downscaled_image = self.downscale(image_input)
                 y = self.from_rgb_downscaled[res](downscaled_image)
                 x = x + (y - x) * lod_remainder

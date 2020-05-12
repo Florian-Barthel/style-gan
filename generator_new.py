@@ -12,7 +12,14 @@ class Generator(tf.keras.models.Model):
         self.num_mapping_layers = num_mapping_layers
         self.mapping_fmaps = mapping_fmaps
         self.fmap_base = fmap_base
-        self.resolution_log2 = int(np.log2(resolution))
+        self.resolution_tensor = tf.Variable(resolution, dtype=tf.dtypes.float32, trainable=False)
+        self.resolution_log2 = tf.cast(
+            tf.math.log(self.resolution_tensor) / tf.math.log(
+                tf.Variable(2, dtype=tf.dtypes.float32, trainable=False)),
+            dtype=tf.dtypes.int32)
+
+        self.one = tf.Variable(1, dtype=type, trainable=False)
+        self.zero = tf.Variable(0, dtype=type, trainable=False)
 
         # Layers
         # self.pixel_norm = layers.PixelNorm(type)
@@ -35,7 +42,8 @@ class Generator(tf.keras.models.Model):
         # Functions
         self.upscale = layers.upscale(2)
 
-    def call(self, inputs):
+
+    def __call__(self, inputs):
         latents_input = inputs[0]
         lod_input = inputs[1]
         # latents = self.pixel_norm(latents_input)
@@ -43,13 +51,14 @@ class Generator(tf.keras.models.Model):
 
         x = self.first_gen_block(latents)
         result = self.to_rgb_first(x)
-        lod_counter = int(np.ceil(lod_input))
-        lod_remainder = lod_input - np.floor(lod_input)
-        if int(np.ceil(lod_input)) > self.resolution_log2:
+        lod_counter = tf.math.ceil(lod_input)
+        lod_remainder = lod_input - tf.math.floor(lod_input)
+        if int(tf.math.ceil(lod_input)) > self.resolution_log2:
             print('WARNING: LoD = {}, while log(resolution) = {}'.format(lod_input, self.resolution_log2))
 
-        for res in range(3, min(int(np.ceil(lod_input)) + 3, self.resolution_log2 + 1)):
-            if lod_counter == 1 and lod_remainder > 0:
+        lod_res = tf.cast(tf.math.ceil(lod_input), dtype=tf.int32) + 3
+        for res in range(3, min(lod_res, self.resolution_log2 + 1)):
+            if tf.equal(lod_counter, self.one) and tf.math.greater(lod_remainder, 0):
                 rgb_image = self.to_rgb_old[str(res)](x)
                 prev = self.upscale(rgb_image)
                 x = self.blocks[str(res)]([x, latents])
