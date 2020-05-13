@@ -1,26 +1,16 @@
 import numpy as np
-import generator_new
-import matplotlib.pyplot as plt
-import discriminator_new
 
-num_examples_to_generate = 16
-seed = np.random.rand(num_examples_to_generate, 32, 1)
-lod_in = np.float32(0.9)
+f = [1, 2, 1]
 
-generator_model = generator_new.Generator(resolution=32, num_channels=1)
-discriminator_model = discriminator_new.Discriminator(resolution=32, num_channels=1)
+f = np.array(f, dtype=np.float32)
+if f.ndim == 1:
+    f = f[:, np.newaxis] * f[np.newaxis, :]
+assert f.ndim == 2
 
-plt.figure(figsize=(4, 4))
-generated_images = generator_model([seed, lod_in])
-predictions = discriminator_model([generated_images, lod_in])
-print(predictions)
+f /= np.sum(f)
+f = f[:, :, np.newaxis, np.newaxis]
+f = np.tile(f, [1, 1, int(x.shape[3]), 1])
 
-for i in range(generated_images.shape[0]):
-    plt.subplot(4, 4, i + 1)
-    plt.imshow(generated_images[i, :, :, 0] * 127.5 + 127.5, cmap='gray')
-    plt.axis('off')
 
-plt.savefig('images/generated')
-plt.show()
-
-print('')
+print(f.shape)
+print(np.sum(f))

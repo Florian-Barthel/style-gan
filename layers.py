@@ -1,17 +1,20 @@
 import tensorflow as tf
-
-
-class Tile(tf.keras.layers.Layer):
-    def __init__(self, shape):
-        super(Tile, self).__init__()
-        self.shape = shape
-
-    def call(self, inputs):
-        return tf.tile(inputs, self.shape)
+import numpy as np
 
 
 def calc_num_filters(stage, fmap_base):
     return int(fmap_base / (2.0 ** stage))
+
+def activation():
+    return tf.keras.layers.Activation('relu')
+
+
+def upscale(faktor=2):
+    return tf.keras.layers.UpSampling2D(size=(faktor, faktor), data_format='channels_last', interpolation='bilinear')
+
+
+def downscale():
+    return tf.keras.layers.MaxPooling2D(pool_size=(2, 2), data_format='channels_last')
 
 
 def conv2d(filters, kernel_size):
@@ -72,6 +75,7 @@ class GenBlock(tf.keras.layers.Layer):
         super(GenBlock, self).__init__()
         self.upscale = upscale(2)
         self.conv1 = conv2d(filters=calc_num_filters(res - 1, fmap_base), kernel_size=(3, 3))
+        self.blur = Blur2d()
         self.epilogue_1 = LayerEpilogue(layer_index=res * 2 - 4, type=type)
         self.conv2 = conv2d(filters=calc_num_filters(res - 1, fmap_base), kernel_size=(3, 3))
         self.epilogue_2 = LayerEpilogue(layer_index=res * 2 - 3, type=type)
@@ -81,6 +85,7 @@ class GenBlock(tf.keras.layers.Layer):
         latents = inputs[1]
         x = self.upscale(x)
         x = self.conv1(x)
+        x = self.blur(x)
         x = self.epilogue_1([x, latents])
         x = self.conv2(x)
         return self.epilogue_2([x, latents])
@@ -90,15 +95,20 @@ class DiscBlock(tf.keras.layers.Layer):
     def __init__(self, res, fmap_base):
         super(DiscBlock, self).__init__()
         self.conv1 = conv2d(filters=calc_num_filters(res - 1, fmap_base), kernel_size=(3, 3))
-        self.activation = activation()
+        self.activation1 = activation()
+        self.blur = Blur2d()
         self.conv2 = conv2d(filters=calc_num_filters(res - 2, fmap_base), kernel_size=(3, 3))
         self.downscale = downscale()
+        self.activation2 = activation()
 
     def call(self, x):
         x = self.conv1(x)
-        x = self.activation(x)
+        x = self.activation1(x)
+        x = self.blur(x)
         x = self.conv2(x)
-        return self.downscale(x)
+        x = self.downscale(x)
+        x = self.activation2(x)
+        return x
 
 
 class LastDiscBlock(tf.keras.layers.Layer):
@@ -192,18 +202,6 @@ class FromRGB(tf.keras.layers.Layer):
         return self.conv(x)
 
 
-def activation():
-    return tf.keras.layers.Activation('relu')
-
-
-def upscale(faktor=2):
-    return tf.keras.layers.UpSampling2D(size=(faktor, faktor), data_format='channels_last', interpolation='bilinear')
-
-
-def downscale():
-    return tf.keras.layers.MaxPooling2D(pool_size=(2, 2), data_format='channels_last')
-
-
 class ApplyNoiseWithWeights(tf.keras.layers.Layer):
     def __init__(self, layer_idx, type=tf.float32):
         super(ApplyNoiseWithWeights, self).__init__()
@@ -235,6 +233,7 @@ class InstanceNorm(tf.keras.layers.Layer):
         return x
 
 
+# for latent vector only
 class PixelNorm(tf.keras.layers.Layer):
     def __init__(self):
         super(PixelNorm, self).__init__()
@@ -287,3 +286,20 @@ class MinibatchStdev(tf.keras.layers.Layer):
         input_shape = list(input_shape)
         input_shape[-1] += 1
         return tuple(input_shape)
+
+
+class Blur2d(tf.keras.layers.Layer):
+    def __init__(self):
+        super(Blur2d, self).__init__()
+
+    def build(self, input_shape):
+        self.filter = [1, 2, 1]
+        self.filter = np.array(self.filter, dtype=np.float32)
+        self.filter = self.filter[:, np.newaxis] * self.filter[np.newaxis, :]
+        self.filter /= np.sum(self.filter)
+        self.filter = self.filter[:, :, np.newaxis, np.newaxis]
+        self.filter = np.tile(self.filter, [1, 1, int(input_shape[3]), 1])
+        super(Blur2d, self).build(input_shape)
+
+    def call(self, inputs):
+        return tf.nn.depthwise_conv2d(inputs, self.filter, [1, 1, 1, 1], padding='SAME', data_format='NHWC')

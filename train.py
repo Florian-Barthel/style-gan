@@ -55,11 +55,14 @@ def train(images, latents, lod):
         disc_loss = loss.wasserstein_loss(1, real_scores) + loss.wasserstein_loss(-1, fake_scores)
         gen_loss = loss.wasserstein_loss(1, fake_scores)
 
-    gradients_of_generator = gen_tape.gradient(gen_loss, generator_model.trainable_variables)
-    gradients_of_discriminator = disc_tape.gradient(disc_loss, discriminator_model.trainable_variables)
+    gen_vars = generator_model.trainable_variables
+    disc_vars = discriminator_model.trainable_variables
 
-    generator_optimizer.apply_gradients(zip(gradients_of_generator, generator_model.trainable_variables))
-    discriminator_optimizer.apply_gradients(zip(gradients_of_discriminator, discriminator_model.trainable_variables))
+    gradients_of_generator = gen_tape.gradient(gen_loss, gen_vars)
+    gradients_of_discriminator = disc_tape.gradient(disc_loss, disc_vars)
+
+    generator_optimizer.apply_gradients(zip(gradients_of_generator, gen_vars))
+    discriminator_optimizer.apply_gradients(zip(gradients_of_discriminator, disc_vars))
     return gen_loss, disc_loss
 
 
