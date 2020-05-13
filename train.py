@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import datetime
 import loss
+import process_labels
 
 # Set True for debugging
 tf.config.experimental_run_functions_eagerly(False)
@@ -66,17 +67,15 @@ def train(images, latents, lod):
     return gen_loss, disc_loss
 
 
-def init(images_batch):
+def init(image_batch):
     lod = 0.0
-
-    latents = tf.Variable(np.random.rand(config.batch_size, config.latent_size, 1) * 2 - 1,
-                          dtype=tf.dtypes.float32,
-                          trainable=False)
 
     while lod <= config.max_lod:
         lod_res = int(2 ** (np.ceil(lod) + 2))
-        resized_batch = tf.image.resize(images_batch, [lod_res, lod_res],
-                                        method=tf.image.ResizeMethod.AREA)
+        latents = tf.Variable(np.random.rand(config.batch_size, config.latent_size, 1) * 2 - 1,
+                              dtype=tf.dtypes.float32,
+                              trainable=False)
+        resized_batch = process_labels.resize(image_batch, lod)
 
         with tf.GradientTape() as gen_tape, tf.GradientTape() as disc_tape:
             fake_images_out = generator_model([latents, lod])
@@ -110,9 +109,7 @@ def train_loop(dataset, epochs):
     for epoch in range(epochs):
         start = time.time()
         for image_batch in dataset:
-            lod_res = int(2 ** (np.floor(lod) + 2))
-            resized_batch = tf.image.resize(image_batch, [lod_res, lod_res],
-                                            method=tf.image.ResizeMethod.AREA)
+            resized_batch = process_labels.resize(image_batch, lod)
             latents = tf.Variable(np.random.rand(config.batch_size, config.latent_size, 1) * 2 - 1,
                                   dtype=tf.dtypes.float32,
                                   trainable=False)
