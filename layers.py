@@ -107,24 +107,27 @@ class LastDiscBlock(tf.keras.layers.Layer):
         self.stddev = MinibatchStdev()
         self.conv1 = conv2d(filters=calc_num_filters(1, fmap_base), kernel_size=(3, 3))
         self.activation1 = activation()
-        self.conv2 = conv2d(filters=calc_num_filters(0, fmap_base), kernel_size=(3, 3))
+        self.dense1 = tf.keras.layers.Dense(
+            units=calc_num_filters(0, fmap_base),
+            activation='linear',
+            use_bias=True,
+            kernel_initializer='random_uniform',
+            bias_initializer='zeros')
         self.activation2 = activation()
-        self.dense = tf.keras.layers.Dense(
+        self.dense2 = tf.keras.layers.Dense(
             units=1,
             activation='linear',
             use_bias=True,
             kernel_initializer='random_uniform',
             bias_initializer='zeros')
-        self.activation3 = activation()
 
     def call(self, x):
         x = self.stddev(x)
         x = self.conv1(x)
         x = self.activation1(x)
-        x = self.conv2(x)
+        x = self.dense1(x)
         x = self.activation2(x)
-        x = self.dense(x)
-        return self.activation3(x)
+        return self.dense2(x)
 
 
 class LayerEpilogue(tf.keras.layers.Layer):

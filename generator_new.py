@@ -15,7 +15,7 @@ class Generator(tf.keras.models.Model):
         self.resolution_log2 = int(np.log2(resolution))
 
         # Layers
-        # self.pixel_norm = layers.PixelNorm(type)
+        self.pixel_norm = layers.PixelNorm()
         self.mapping_layers = layers.Mapping(num_mapping_layers, mapping_fmaps)
         self.first_gen_block = layers.FirstGenBlock(fmap_base=fmap_base, type=type)
         self.blocks = dict()
@@ -38,8 +38,8 @@ class Generator(tf.keras.models.Model):
     def call(self, inputs):
         latents_input = inputs[0]
         lod_input = inputs[1]
-        # latents = self.pixel_norm(latents_input)
-        latents = self.mapping_layers(latents_input)
+        latents = self.pixel_norm(latents_input)
+        latents = self.mapping_layers(latents)
 
         x = self.first_gen_block(latents)
         result = self.to_rgb_first(x)

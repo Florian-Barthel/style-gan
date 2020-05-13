@@ -27,7 +27,6 @@ summary_writer = tf.summary.create_file_writer(logdir=log_dir)
 
 train_images = train_images.reshape(train_images.shape[0], 28, 28, 1).astype('uint8')
 train_images = (train_images - 127.5) / 127.5
-# train_images = tf.image.resize(train_images, (config.resolution, config.resolution))
 
 train_dataset = tf.data.Dataset.from_tensor_slices(train_images).shuffle(config.BUFFER_SIZE).batch(config.batch_size)
 
@@ -42,58 +41,65 @@ discriminator_model = discriminator_new.Discriminator(
     fmap_base=config.fmap_base,
     num_channels=1)
 
-checkpoint_dir = './training_checkpoints'
-checkpoint_prefix = os.path.join(checkpoint_dir, "ckpt")
-
 generator_optimizer = tf.keras.optimizers.Adam()
 discriminator_optimizer = tf.keras.optimizers.Adam()
 
-checkpoint = tf.train.Checkpoint(generator_optimizer=generator_optimizer,
-                                 discriminator_optimizer=discriminator_optimizer,
-                                 generator=generator_model,
-                                 discriminator=discriminator_model)
-
 
 @tf.function
-def train_both(images, latents, lod):
+def train(images, latents, lod):
     with tf.GradientTape() as gen_tape, tf.GradientTape() as disc_tape:
         fake_images_out = generator_model([latents, lod])
         real_scores = discriminator_model([images, lod])
         fake_scores = discriminator_model([fake_images_out, lod])
 
-        Disc_loss = loss.wasserstein_loss(1, real_scores) + loss.wasserstein_loss(-1, fake_scores)
-        Gen_loss = loss.wasserstein_loss(1, fake_scores)
+        disc_loss = loss.wasserstein_loss(1, real_scores) + loss.wasserstein_loss(-1, fake_scores)
+        gen_loss = loss.wasserstein_loss(1, fake_scores)
 
-        acc_real = tf.reduce_sum(real_scores / 2 + 0.5) / config.batch_size
-        acc_fake = (config.batch_size - tf.reduce_sum(fake_scores / 2 + 0.5)) / config.batch_size
-
-        gradients_of_generator = gen_tape.gradient(Gen_loss, generator_model.trainable_variables)
-        gradients_of_discriminator = disc_tape.gradient(Disc_loss, discriminator_model.trainable_variables)
+    gradients_of_generator = gen_tape.gradient(gen_loss, generator_model.trainable_variables)
+    gradients_of_discriminator = disc_tape.gradient(disc_loss, discriminator_model.trainable_variables)
 
     generator_optimizer.apply_gradients(zip(gradients_of_generator, generator_model.trainable_variables))
     discriminator_optimizer.apply_gradients(zip(gradients_of_discriminator, discriminator_model.trainable_variables))
-    return Gen_loss, Disc_loss, acc_real, acc_fake, gradients_of_generator, gradients_of_discriminator
+    return gen_loss, disc_loss
 
 
-@tf.function
-def init(seed, zero):
-    lod = config.max_lod
-    with tf.GradientTape() as gen_tape, tf.GradientTape() as disc_tape:
-        lod_res = int(2 ** (np.floor(lod) + 2))
+def init(images_batch):
+    lod = 0.0
 
-        images = generator_model([seed, np.float32(lod)])
-        predictions = discriminator_model([images, np.float32(lod)])
+    latents = tf.Variable(np.random.rand(config.batch_size, config.latent_size, 1) * 2 - 1,
+                          dtype=tf.dtypes.float32,
+                          trainable=False)
 
-        grad_gen = gen_tape.gradient(zero, generator_model.trainable_variables)
-        grad_disc = disc_tape.gradient(zero, discriminator_model.trainable_variables)
+    while lod <= config.max_lod:
+        lod_res = int(2 ** (np.ceil(lod) + 2))
+        resized_batch = tf.image.resize(images_batch, [lod_res, lod_res],
+                                        method=tf.image.ResizeMethod.AREA)
 
-        generator_optimizer.apply_gradients(zip(grad_gen, generator_model.trainable_variables))
-        discriminator_optimizer.apply_gradients(zip(grad_disc, discriminator_model.trainable_variables))
-        print(lod_res)
+        with tf.GradientTape() as gen_tape, tf.GradientTape() as disc_tape:
+            fake_images_out = generator_model([latents, lod])
+            real_scores = discriminator_model([resized_batch, lod])
+            fake_scores = discriminator_model([fake_images_out, lod])
+
+            disc_loss = loss.wasserstein_loss(1, real_scores) + loss.wasserstein_loss(-1, fake_scores)
+            gen_loss = loss.wasserstein_loss(1, fake_scores)
+
+        gen_vars = generator_model.trainable_variables
+        disc_vars = discriminator_model.trainable_variables
+
+        gradients_of_generator = gen_tape.gradient(gen_loss, gen_vars)
+        gradients_of_discriminator = disc_tape.gradient(disc_loss, disc_vars)
+
+        generator_optimizer.apply_gradients(zip(gradients_of_generator, gen_vars))
+        discriminator_optimizer.apply_gradients(zip(gradients_of_discriminator, disc_vars))
+        print('init layer:', lod_res)
+        print('lod:', lod)
+        print('num vars gen:', len(gen_vars))
+        print('num vars disc:', len(disc_vars))
+        lod += 0.5
 
 
-def train(dataset, epochs):
-    lod = np.float32(0.0)
+def train_loop(dataset, epochs):
+    lod = 0.0
     gen_loss = 0
     disc_loss = 0
     increase_lod = False
@@ -107,18 +113,11 @@ def train(dataset, epochs):
             latents = tf.Variable(np.random.rand(config.batch_size, config.latent_size, 1) * 2 - 1,
                                   dtype=tf.dtypes.float32,
                                   trainable=False)
-            gen_loss, disc_loss, acc_real, acc_fake, grad_gen, grad_dis = train_both(resized_batch,
-                                                                                     latents,
-                                                                                     np.float32(lod))
+            gen_loss, disc_loss = train(resized_batch, latents, np.float32(lod))
 
             with summary_writer.as_default():
                 tf.summary.scalar('gen_loss', gen_loss, step=generator_optimizer.iterations)
                 tf.summary.scalar('disc_loss', disc_loss, step=discriminator_optimizer.iterations)
-                tf.summary.scalar('acc_real', acc_real, step=generator_optimizer.iterations)
-                tf.summary.scalar('acc_fake', acc_fake, step=discriminator_optimizer.iterations)
-                # tf.summary.scalar('grad_gen', grad_gen, step=generator_optimizer.iterations)
-                # tf.summary.scalar('grad_dis', grad_dis, step=discriminator_optimizer.iterations)
-
             iteration += 1
 
         # if epoch % 10:
@@ -131,17 +130,13 @@ def train(dataset, epochs):
             increase_lod = not increase_lod
 
         if increase_lod and lod < config.max_lod:
-            lod = lod + config.lod_increase
-
-        if (epoch + 1) % 15 == 0:
-            checkpoint.save(file_prefix=checkpoint_prefix)
+            lod = np.around(lod + config.lod_increase, decimals=config.lod_decimals)
 
         print('Time for epoch {} is {} sec'.format(epoch + 1, time.time() - start))
 
 
 def generate_and_save_images(epoch, test_input, lod):
     images = generator_model([test_input, lod])
-    predictions = discriminator_model([images, lod])
 
     plt.figure(figsize=(4, 4))
     for i in range(config.num_examples_to_generate):
@@ -152,27 +147,5 @@ def generate_and_save_images(epoch, test_input, lod):
     plt.show()
 
 
-# def draw_labels(image_batch):
-#     plt.figure(figsize=(2, 3))
-#     for i in range(6):
-#         lod_res = int(2 ** (np.floor(i) + 2))
-#         resampled_image = tf.image.resize(image_batch[3], [lod_res, lod_res],
-#                                           method=tf.image.ResizeMethod.BILINEAR)
-#         fit_for_discriminator = tf.image.resize(resampled_image, [config.resolution, config.resolution],
-#                                                 method=tf.image.ResizeMethod.BILINEAR)
-#         plt.subplot(2, 3, i + 1)
-#         plt.imshow(fit_for_discriminator[:, :, 0] * 127.5 + 127.5, cmap='gray')
-#         plt.title('{} x {}'.format(lod_res, lod_res), fontdict={'fontsize': 8})
-#         plt.axis('off')
-#     plt.savefig('images/upsampled_bilinear_method.png', dpi=1000)
-#     plt.show()
-
-
-# draw_labels(next(iter(train_dataset)))
-seed = tf.Variable(np.random.rand(config.batch_size, config.latent_size, 1) * 2 - 1,
-                   dtype=tf.dtypes.float32,
-                   trainable=False)
-zero = tf.Variable(0, dtype=tf.dtypes.float32, trainable=False)
-init(seed, zero)
-
-train(train_dataset, config.EPOCHS)
+init(next(iter(train_dataset)))
+train_loop(train_dataset, config.EPOCHS)

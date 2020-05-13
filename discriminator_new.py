@@ -10,7 +10,6 @@ class Discriminator(tf.keras.models.Model):
         self.type = type
         self.num_channels = num_channels
         self.resolution_log2 = int(np.log2(resolution))
-        self.num_layers = self.resolution_log2 * 2 - 2
 
         # Layers
         self.std_dev = layers.MinibatchStdev()
@@ -41,7 +40,7 @@ class Discriminator(tf.keras.models.Model):
             if fist_layer and lod_remainder > 0:
                 downscaled_image = self.downscale(image_input)
                 y = self.from_rgb_downscaled[res](downscaled_image)
-                x = x + (y - x) * lod_remainder
+                x = x + (y - x) * (1 - lod_remainder)
             fist_layer = False
 
         scores = self.last_block(x)

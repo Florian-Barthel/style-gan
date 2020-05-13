@@ -10,9 +10,10 @@ num_mapping_layers = 8
 mapping_fmaps = 32
 fmap_base = 32
 
-epochs_per_lod = 2
-lod_increase = np.float32(1 / epochs_per_lod)
+epochs_per_lod = 5
+lod_increase = 1 / epochs_per_lod
 max_lod = int(np.log2(resolution)) - 2
+lod_decimals = 2
 
 EPOCHS = 500
 num_examples_to_generate = 16
