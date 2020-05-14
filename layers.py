@@ -143,10 +143,10 @@ class LastDiscBlock(tf.keras.layers.Layer):
 class LayerEpilogue(tf.keras.layers.Layer):
     def __init__(self, layer_index, type=tf.dtypes.float32):
         super(LayerEpilogue, self).__init__()
+        self.layer_index = layer_index
         self.apply_noise = ApplyNoiseWithWeights(layer_index, type)
         self.activation = activation()
         self.instance_norm = InstanceNorm()
-        self.slice = IndexSlice(layer_index)
         self.style_mod = StyleMod()
 
     def build(self, input_shape):
@@ -164,9 +164,22 @@ class LayerEpilogue(tf.keras.layers.Layer):
         x = self.apply_noise(x)
         x = self.activation(x)
         x = self.instance_norm(x)
-        style = self.slice(style)
+        style = style[:, self.layer_index]
         style = self.dense(style)
         return self.style_mod([x, style])
+
+
+class StyleMod(tf.keras.layers.Layer):
+    def __init__(self):
+        super(StyleMod, self).__init__()
+
+    def call(self, inputs):
+        x = inputs[0]
+        style = inputs[1]
+        style = tf.reshape(style, [-1, 2, 1, 1, x.shape[3]])
+        style_s = (style[:, 0, :, :, :] + 1)
+        style_b = style[:, 1, :, :, :]
+        return x * style_s + style_b
 
 
 class ToRGB(tf.keras.layers.Layer):
@@ -241,28 +254,6 @@ class PixelNorm(tf.keras.layers.Layer):
 
     def call(self, inputs):
         return inputs / tf.sqrt(tf.reduce_mean(tf.square(inputs), axis=1, keepdims=True) + self.epsilon)
-
-
-class StyleMod(tf.keras.layers.Layer):
-    def __init__(self):
-        super(StyleMod, self).__init__()
-
-    def call(self, inputs):
-        x = inputs[0]
-        style = inputs[1]
-        style = tf.reshape(style, [-1, 2, 1, 1, x.shape[3]])
-        style_s = (style[:, 0, :, :, :] + 1)
-        style_b = style[:, 1, :, :, :]
-        return x * style_s + style_b
-
-
-class IndexSlice(tf.keras.layers.Layer):
-    def __init__(self, index):
-        super(IndexSlice, self).__init__()
-        self.index = index
-
-    def call(self, inputs):
-        return inputs[:, self.index]
 
 
 # src: https://machinelearningmastery.com/how-to-train-a-progressive-growing-gan-in-keras-for-synthesizing-faces/

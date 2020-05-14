@@ -1,8 +1,6 @@
 import tensorflow as tf
-import generator_new
-import generator_loss
-import discriminator_new
-import discriminator_loss
+import generator
+import discriminator
 import os
 import config
 import time
@@ -29,25 +27,32 @@ summary_writer = tf.summary.create_file_writer(logdir=log_dir)
 train_images = train_images.reshape(train_images.shape[0], 28, 28, 1).astype('uint8')
 train_images = (train_images - 127.5) / 127.5
 
-train_dataset = tf.data.Dataset.from_tensor_slices(train_images).shuffle(config.BUFFER_SIZE).batch(config.batch_size)
+train_dataset = tf.data.Dataset.from_tensor_slices(
+    train_images).shuffle(
+    config.BUFFER_SIZE).batch(
+    config.batch_size)
 
-generator_model = generator_new.Generator(
-    num_mapping_layers=config.num_mapping_layers,
-    mapping_fmaps=config.mapping_fmaps,
-    resolution=config.resolution,
-    fmap_base=config.fmap_base,
-    num_channels=1)
-discriminator_model = discriminator_new.Discriminator(
-    resolution=config.resolution,
-    fmap_base=config.fmap_base,
-    num_channels=1)
+generator_model = generator.Generator(num_mapping_layers=config.num_mapping_layers,
+                                      mapping_fmaps=config.mapping_fmaps,
+                                      resolution=config.resolution,
+                                      fmap_base=config.fmap_base,
+                                      num_channels=1)
+
+discriminator_model = discriminator.Discriminator(resolution=config.resolution,
+                                                  fmap_base=config.fmap_base,
+                                                  num_channels=1)
 
 generator_optimizer = tf.keras.optimizers.Adam()
 discriminator_optimizer = tf.keras.optimizers.Adam()
 
+gen_var_list = []
+disc_var_list = []
+var_list_index = 0
+
 
 @tf.function
 def train(images, latents, lod):
+    global var_list_index
     with tf.GradientTape() as gen_tape, tf.GradientTape() as disc_tape:
         fake_images_out = generator_model([latents, lod])
         real_scores = discriminator_model([images, lod])
@@ -56,8 +61,8 @@ def train(images, latents, lod):
         disc_loss = loss.wasserstein_loss(1, real_scores) + loss.wasserstein_loss(-1, fake_scores)
         gen_loss = loss.wasserstein_loss(1, fake_scores)
 
-    gen_vars = generator_model.trainable_variables
-    disc_vars = discriminator_model.trainable_variables
+    gen_vars = gen_var_list[var_list_index]
+    disc_vars = disc_var_list[var_list_index]
 
     gradients_of_generator = gen_tape.gradient(gen_loss, gen_vars)
     gradients_of_discriminator = disc_tape.gradient(disc_loss, disc_vars)
@@ -88,6 +93,9 @@ def init(image_batch):
         gen_vars = generator_model.trainable_variables
         disc_vars = discriminator_model.trainable_variables
 
+        gen_var_list.append(gen_vars)
+        disc_var_list.append(disc_vars)
+
         gradients_of_generator = gen_tape.gradient(gen_loss, gen_vars)
         gradients_of_discriminator = disc_tape.gradient(disc_loss, disc_vars)
 
@@ -105,7 +113,8 @@ def train_loop(dataset, epochs):
     gen_loss = 0
     disc_loss = 0
     increase_lod = False
-    iteration = 0
+    iteration = 1
+    global var_list_index
     for epoch in range(epochs):
         start = time.time()
         for image_batch in dataset:
@@ -114,10 +123,10 @@ def train_loop(dataset, epochs):
                                   dtype=tf.dtypes.float32,
                                   trainable=False)
             gen_loss, disc_loss = train(resized_batch, latents, np.float32(lod))
-
-            with summary_writer.as_default():
-                tf.summary.scalar('gen_loss', gen_loss, step=generator_optimizer.iterations)
-                tf.summary.scalar('disc_loss', disc_loss, step=discriminator_optimizer.iterations)
+            if iteration % 100:
+                with summary_writer.as_default():
+                    tf.summary.scalar('gen_loss', gen_loss, step=iteration)
+                    tf.summary.scalar('disc_loss', disc_loss, step=iteration)
             iteration += 1
 
         # if epoch % 10:
@@ -128,6 +137,7 @@ def train_loop(dataset, epochs):
 
         if (epoch + 1) % config.epochs_per_lod == 0:
             increase_lod = not increase_lod
+            var_list_index += 1
 
         if increase_lod and lod < config.max_lod:
             lod = np.around(lod + config.lod_increase, decimals=config.lod_decimals)
