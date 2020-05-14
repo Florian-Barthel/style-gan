@@ -29,7 +29,7 @@ train_images = (train_images - 127.5) / 127.5
 
 train_dataset = tf.data.Dataset.from_tensor_slices(
     train_images).shuffle(
-    config.BUFFER_SIZE).batch(
+    config.buffer_size).batch(
     config.batch_size)
 
 generator_model = generator.Generator(num_mapping_layers=config.num_mapping_layers,
@@ -58,8 +58,10 @@ def train(images, latents, lod):
         real_scores = discriminator_model([images, lod])
         fake_scores = discriminator_model([fake_images_out, lod])
 
-        disc_loss = loss.wasserstein_loss(1, real_scores) + loss.wasserstein_loss(-1, fake_scores)
-        gen_loss = loss.wasserstein_loss(1, fake_scores)
+        # disc_loss = loss.wasserstein_loss(1, real_scores) + loss.wasserstein_loss(-1, fake_scores)
+        # gen_loss = loss.wasserstein_loss(1, fake_scores)
+        disc_loss = loss.d_logistic(real_scores, fake_scores)
+        gen_loss = loss.g_logistic(fake_scores)
 
     gen_vars = gen_var_list[var_list_index]
     disc_vars = disc_var_list[var_list_index]
@@ -87,8 +89,10 @@ def init(image_batch):
             real_scores = discriminator_model([resized_batch, lod])
             fake_scores = discriminator_model([fake_images_out, lod])
 
-            disc_loss = loss.wasserstein_loss(1, real_scores) + loss.wasserstein_loss(-1, fake_scores)
-            gen_loss = loss.wasserstein_loss(1, fake_scores)
+            # disc_loss = loss.wasserstein_loss(1, real_scores) + loss.wasserstein_loss(-1, fake_scores)
+            # gen_loss = loss.wasserstein_loss(1, fake_scores)
+            disc_loss = loss.d_logistic(real_scores, fake_scores)
+            gen_loss = loss.g_logistic(fake_scores)
 
         gen_vars = generator_model.trainable_variables
         disc_vars = discriminator_model.trainable_variables
@@ -129,11 +133,10 @@ def train_loop(dataset, epochs):
                     tf.summary.scalar('disc_loss', disc_loss, step=iteration)
             iteration += 1
 
-        # if epoch % 10:
         generate_and_save_images(epoch + 1, config.seed, lod)
         print('lod:', lod)
-        print('gen_loss:', gen_loss)
-        print('dis_loss:', disc_loss)
+        print('gen_loss:', gen_loss.numpy())
+        print('dis_loss:', disc_loss.numpy())
 
         if (epoch + 1) % config.epochs_per_lod == 0:
             increase_lod = not increase_lod
@@ -142,7 +145,7 @@ def train_loop(dataset, epochs):
         if increase_lod and lod < config.max_lod:
             lod = np.around(lod + config.lod_increase, decimals=config.lod_decimals)
 
-        print('Time for epoch {} is {} sec'.format(epoch + 1, time.time() - start))
+        print('Time for epoch {} is {} sec\n'.format(epoch + 1, time.time() - start))
 
 
 def generate_and_save_images(epoch, test_input, lod):
@@ -158,4 +161,4 @@ def generate_and_save_images(epoch, test_input, lod):
 
 
 init(next(iter(train_dataset)))
-train_loop(train_dataset, config.EPOCHS)
+train_loop(train_dataset, config.epochs)

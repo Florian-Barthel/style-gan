@@ -4,8 +4,15 @@ import numpy as np
 
 
 class Discriminator(tf.keras.models.Model):
-    def __init__(self, resolution=32, type=tf.dtypes.float32, num_channels=1, fmap_base=32):
+    def __init__(self,
+                 resolution=32,
+                 type=tf.float32,
+                 num_channels=1,
+                 fmap_base=32):
+
         super(Discriminator, self).__init__()
+
+        # Config vars
         self.fmap_base = fmap_base
         self.type = type
         self.num_channels = num_channels
@@ -26,7 +33,7 @@ class Discriminator(tf.keras.models.Model):
         # Functions
         self.downscale = layers.downscale()
 
-    def call(self, inputs):
+    def call(self, inputs, trainable=True, mask=None):
         image_input = inputs[0]
         lod_input = inputs[1]
 

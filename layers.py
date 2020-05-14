@@ -1,86 +1,84 @@
 import tensorflow as tf
 import numpy as np
+from tensorflow.keras.layers import Layer, MaxPooling2D, UpSampling2D, Conv2D, Dense, Activation
 
 
 def calc_num_filters(stage, fmap_base):
     return int(fmap_base / (2.0 ** stage))
 
-def activation():
-    return tf.keras.layers.Activation('relu')
 
-
-def upscale(faktor=2):
-    return tf.keras.layers.UpSampling2D(size=(faktor, faktor), data_format='channels_last', interpolation='bilinear')
+def upscale(factor=2):
+    return UpSampling2D(size=(factor, factor), data_format='channels_last', interpolation='bilinear')
 
 
 def downscale():
-    return tf.keras.layers.MaxPooling2D(pool_size=(2, 2), data_format='channels_last')
+    return MaxPooling2D(pool_size=(2, 2), data_format='channels_last')
 
 
-def conv2d(filters, kernel_size):
-    return tf.keras.layers.Conv2D(filters=filters,
-                                  kernel_size=kernel_size,
-                                  kernel_initializer='random_uniform',
-                                  use_bias=True,
-                                  activation='linear',
-                                  padding='same',
-                                  bias_initializer='zeros',
-                                  data_format="channels_last")
+def default_conv2d(filters, kernel_size):
+    return Conv2D(filters=filters,
+                  kernel_size=kernel_size,
+                  kernel_initializer='random_uniform',
+                  use_bias=True,
+                  activation='linear',
+                  padding='same',
+                  bias_initializer='zeros',
+                  data_format="channels_last")
 
 
-class Mapping(tf.keras.layers.Layer):
+class Mapping(Layer):
     def __init__(self, num_layers, num_filters):
         super(Mapping, self).__init__()
         self.num_layers = num_layers
         self.layers = []
 
         for _ in range(self.num_layers):
-            self.layers.append(tf.keras.layers.Dense(
-                units=num_filters,
-                activation='relu',
-                use_bias=True,
-                kernel_initializer='random_uniform',
-                bias_initializer='zeros'))
+            self.layers.append(Dense(units=num_filters,
+                                     activation='relu',
+                                     use_bias=True,
+                                     kernel_initializer='random_uniform',
+                                     bias_initializer='zeros'))
 
-    def call(self, x):
+    def call(self, x, **kwargs):
         for i in range(self.num_layers):
             x = self.layers[i](x)
         return x
 
 
-class FirstGenBlock(tf.keras.layers.Layer):
+class FirstGenBlock(Layer):
     def __init__(self, fmap_base, type):
         super(FirstGenBlock, self).__init__()
         self.fmap_base = fmap_base
         self.type = type
         self.epilogue_1 = LayerEpilogue(layer_index=0, type=type)
-        self.conv = conv2d(filters=calc_num_filters(1, fmap_base), kernel_size=(3, 3))
+        self.conv = default_conv2d(filters=calc_num_filters(1, fmap_base), kernel_size=(3, 3))
         self.epilogue_2 = LayerEpilogue(layer_index=1, type=type)
+        self.constant = None
 
     def build(self, input_shape):
-        batchsize = input_shape[0]
-        self.constant = tf.Variable(tf.random.normal([1, 4, 4, calc_num_filters(1, self.fmap_base)]), trainable=True,
+        self.constant = tf.Variable(tf.random.normal([1, 4, 4, calc_num_filters(1, self.fmap_base)]),
+                                    trainable=True,
                                     dtype=self.type)
-        self.constant = tf.tile(self.constant, [batchsize, 1, 1, 1])
+        self.constant = tf.tile(self.constant, [input_shape[0], 1, 1, 1])
         super(FirstGenBlock, self).build(input_shape)
 
-    def call(self, latents):
+    def call(self, latents, **kwargs):
         x = self.epilogue_1([self.constant, latents])
         x = self.conv(x)
         return self.epilogue_2([x, latents])
 
 
-class GenBlock(tf.keras.layers.Layer):
+class GenBlock(Layer):
     def __init__(self, res, fmap_base, type):
         super(GenBlock, self).__init__()
         self.upscale = upscale(2)
-        self.conv1 = conv2d(filters=calc_num_filters(res - 1, fmap_base), kernel_size=(3, 3))
+        self.conv1 = default_conv2d(filters=calc_num_filters(res - 1, fmap_base), kernel_size=(3, 3))
         self.blur = Blur2d()
         self.epilogue_1 = LayerEpilogue(layer_index=res * 2 - 4, type=type)
-        self.conv2 = conv2d(filters=calc_num_filters(res - 1, fmap_base), kernel_size=(3, 3))
+        self.conv2 = default_conv2d(filters=calc_num_filters(res - 1, fmap_base), kernel_size=(3, 3))
         self.epilogue_2 = LayerEpilogue(layer_index=res * 2 - 3, type=type)
 
-    def call(self, inputs):
+    def call(self, inputs, **kwargs):
         x = inputs[0]
         latents = inputs[1]
         x = self.upscale(x)
@@ -91,17 +89,17 @@ class GenBlock(tf.keras.layers.Layer):
         return self.epilogue_2([x, latents])
 
 
-class DiscBlock(tf.keras.layers.Layer):
+class DiscBlock(Layer):
     def __init__(self, res, fmap_base):
         super(DiscBlock, self).__init__()
-        self.conv1 = conv2d(filters=calc_num_filters(res - 1, fmap_base), kernel_size=(3, 3))
-        self.activation1 = activation()
+        self.conv1 = default_conv2d(filters=calc_num_filters(res - 1, fmap_base), kernel_size=(3, 3))
+        self.activation1 = Activation('relu')
         self.blur = Blur2d()
-        self.conv2 = conv2d(filters=calc_num_filters(res - 2, fmap_base), kernel_size=(3, 3))
+        self.conv2 = default_conv2d(filters=calc_num_filters(res - 2, fmap_base), kernel_size=(3, 3))
         self.downscale = downscale()
-        self.activation2 = activation()
+        self.activation2 = Activation('relu')
 
-    def call(self, x):
+    def call(self, x, **kwargs):
         x = self.conv1(x)
         x = self.activation1(x)
         x = self.blur(x)
@@ -111,27 +109,25 @@ class DiscBlock(tf.keras.layers.Layer):
         return x
 
 
-class LastDiscBlock(tf.keras.layers.Layer):
+class LastDiscBlock(Layer):
     def __init__(self, fmap_base):
         super(LastDiscBlock, self).__init__()
         self.stddev = MinibatchStdev()
-        self.conv1 = conv2d(filters=calc_num_filters(1, fmap_base), kernel_size=(3, 3))
-        self.activation1 = activation()
-        self.dense1 = tf.keras.layers.Dense(
-            units=calc_num_filters(0, fmap_base),
-            activation='linear',
-            use_bias=True,
-            kernel_initializer='random_uniform',
-            bias_initializer='zeros')
-        self.activation2 = activation()
-        self.dense2 = tf.keras.layers.Dense(
-            units=1,
-            activation='linear',
-            use_bias=True,
-            kernel_initializer='random_uniform',
-            bias_initializer='zeros')
+        self.conv1 = default_conv2d(filters=calc_num_filters(1, fmap_base), kernel_size=(3, 3))
+        self.activation1 = Activation('relu')
+        self.dense1 = Dense(units=calc_num_filters(0, fmap_base),
+                            activation='linear',
+                            use_bias=True,
+                            kernel_initializer='random_uniform',
+                            bias_initializer='zeros')
+        self.activation2 = Activation('relu')
+        self.dense2 = Dense(units=1,
+                            activation='linear',
+                            use_bias=True,
+                            kernel_initializer='random_uniform',
+                            bias_initializer='zeros')
 
-    def call(self, x):
+    def call(self, x, **kwargs):
         x = self.stddev(x)
         x = self.conv1(x)
         x = self.activation1(x)
@@ -140,25 +136,25 @@ class LastDiscBlock(tf.keras.layers.Layer):
         return self.dense2(x)
 
 
-class LayerEpilogue(tf.keras.layers.Layer):
-    def __init__(self, layer_index, type=tf.dtypes.float32):
+class LayerEpilogue(Layer):
+    def __init__(self, layer_index, type=tf.float32):
         super(LayerEpilogue, self).__init__()
         self.layer_index = layer_index
         self.apply_noise = ApplyNoiseWithWeights(layer_index, type)
-        self.activation = activation()
+        self.activation = Activation('relu')
         self.instance_norm = InstanceNorm()
         self.style_mod = StyleMod()
+        self.dense = None
 
     def build(self, input_shape):
-        self.dense = tf.keras.layers.Dense(
-            units=input_shape[0][3] * 2,
-            activation='linear',
-            use_bias=True,
-            kernel_initializer='random_uniform',
-            bias_initializer='zeros')
+        self.dense = Dense(units=input_shape[0][3] * 2,
+                           activation='linear',
+                           use_bias=True,
+                           kernel_initializer='random_uniform',
+                           bias_initializer='zeros')
         super(LayerEpilogue, self).build(input_shape)
 
-    def call(self, inputs):
+    def call(self, inputs, **kwargs):
         x = inputs[0]
         style = inputs[1]
         x = self.apply_noise(x)
@@ -169,11 +165,11 @@ class LayerEpilogue(tf.keras.layers.Layer):
         return self.style_mod([x, style])
 
 
-class StyleMod(tf.keras.layers.Layer):
+class StyleMod(Layer):
     def __init__(self):
         super(StyleMod, self).__init__()
 
-    def call(self, inputs):
+    def call(self, inputs, **kwargs):
         x = inputs[0]
         style = inputs[1]
         style = tf.reshape(style, [-1, 2, 1, 1, x.shape[3]])
@@ -182,40 +178,40 @@ class StyleMod(tf.keras.layers.Layer):
         return x * style_s + style_b
 
 
-class ToRGB(tf.keras.layers.Layer):
+class ToRGB(Layer):
     def __init__(self, num_channels):
         super(ToRGB, self).__init__()
-        self.conv = tf.keras.layers.Conv2D(filters=num_channels,
-                                           kernel_size=(1, 1),
-                                           kernel_initializer='random_uniform',
-                                           use_bias=True,
-                                           activation='linear',
-                                           padding='same',
-                                           bias_initializer='zeros',
-                                           data_format='channels_last')
+        self.conv = Conv2D(filters=num_channels,
+                           kernel_size=(1, 1),
+                           kernel_initializer='random_uniform',
+                           use_bias=True,
+                           activation='linear',
+                           padding='same',
+                           bias_initializer='zeros',
+                           data_format='channels_last')
 
-    def call(self, x):
+    def call(self, x, **kwargs):
         y = self.conv(x)
         return y
 
 
-class FromRGB(tf.keras.layers.Layer):
+class FromRGB(Layer):
     def __init__(self, res, fmap_base):
         super(FromRGB, self).__init__()
-        self.conv = tf.keras.layers.Conv2D(filters=calc_num_filters(res - 1, fmap_base=fmap_base),
-                                           kernel_size=(1, 1),
-                                           kernel_initializer='random_uniform',
-                                           use_bias=True,
-                                           activation='relu',
-                                           padding='same',
-                                           bias_initializer='zeros',
-                                           data_format="channels_last")
+        self.conv = Conv2D(filters=calc_num_filters(res - 1, fmap_base=fmap_base),
+                           kernel_size=(1, 1),
+                           kernel_initializer='random_uniform',
+                           use_bias=True,
+                           activation='relu',
+                           padding='same',
+                           bias_initializer='zeros',
+                           data_format="channels_last")
 
-    def call(self, x):
+    def call(self, x, **kwargs):
         return self.conv(x)
 
 
-class ApplyNoiseWithWeights(tf.keras.layers.Layer):
+class ApplyNoiseWithWeights(Layer):
     def __init__(self, layer_idx, type=tf.float32):
         super(ApplyNoiseWithWeights, self).__init__()
         noise_res = layer_idx // 2 + 2
@@ -231,37 +227,37 @@ class ApplyNoiseWithWeights(tf.keras.layers.Layer):
                                             trainable=True)
         super(ApplyNoiseWithWeights, self).build(input_shape)
 
-    def call(self, inputs):
+    def call(self, inputs, **kwargs):
         return inputs + self.noise * self.noise_weight
 
 
-class InstanceNorm(tf.keras.layers.Layer):
+class InstanceNorm(Layer):
     def __init__(self):
         super(InstanceNorm, self).__init__()
-        self.epsilon = tf.Variable(1e-8, trainable=False)
+        self.epsilon = tf.Variable(1e-8, dtype=tf.float32, trainable=False)
 
-    def call(self, x):
+    def call(self, x, **kwargs):
         x -= tf.reduce_mean(x, axis=[1, 2], keepdims=True)
         x = x / tf.sqrt(tf.reduce_mean(tf.square(x), axis=[1, 2], keepdims=True) + self.epsilon)
         return x
 
 
 # for latent vector only
-class PixelNorm(tf.keras.layers.Layer):
+class PixelNorm(Layer):
     def __init__(self):
         super(PixelNorm, self).__init__()
-        self.epsilon = tf.Variable(1e-8, trainable=False)
+        self.epsilon = tf.Variable(1e-8, dtype=tf.float32, trainable=False)
 
-    def call(self, inputs):
+    def call(self, inputs, **kwargs):
         return inputs / tf.sqrt(tf.reduce_mean(tf.square(inputs), axis=1, keepdims=True) + self.epsilon)
 
 
 # src: https://machinelearningmastery.com/how-to-train-a-progressive-growing-gan-in-keras-for-synthesizing-faces/
-class MinibatchStdev(tf.keras.layers.Layer):
+class MinibatchStdev(Layer):
     def __init__(self, **kwargs):
         super(MinibatchStdev, self).__init__(**kwargs)
 
-    def call(self, inputs):
+    def call(self, inputs, **kwargs):
         mean = tf.reduce_mean(inputs, axis=0, keepdims=True)
         squ_diffs = tf.math.square(inputs - mean)
         mean_sq_diff = tf.reduce_mean(squ_diffs, axis=0, keepdims=True)
@@ -279,9 +275,10 @@ class MinibatchStdev(tf.keras.layers.Layer):
         return tuple(input_shape)
 
 
-class Blur2d(tf.keras.layers.Layer):
+class Blur2d(Layer):
     def __init__(self):
         super(Blur2d, self).__init__()
+        self.filter = None
 
     def build(self, input_shape):
         self.filter = [1, 2, 1]
@@ -292,5 +289,5 @@ class Blur2d(tf.keras.layers.Layer):
         self.filter = np.tile(self.filter, [1, 1, int(input_shape[3]), 1])
         super(Blur2d, self).build(input_shape)
 
-    def call(self, inputs):
+    def call(self, inputs, **kwargs):
         return tf.nn.depthwise_conv2d(inputs, self.filter, [1, 1, 1, 1], padding='SAME', data_format='NHWC')
