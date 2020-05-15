@@ -9,9 +9,12 @@ class Generator(Model):
                  num_mapping_layers=8,
                  mapping_fmaps=32,
                  resolution=64,
-                 type=tf.dtypes.float32,
+                 type=tf.float32,
                  num_channels=1,
-                 fmap_base=32):
+                 fmap_base=32,
+                 lr_mul=0.01,
+                 gain=np.sqrt(2),
+                 use_wscale=True):
 
         super(Generator, self).__init__()
 
@@ -23,20 +26,20 @@ class Generator(Model):
 
         # Layers
         self.pixel_norm = layers.PixelNorm()
-        self.mapping_layers = layers.Mapping(num_mapping_layers, mapping_fmaps)
-        self.first_gen_block = layers.FirstGenBlock(fmap_base=fmap_base, type=type)
+        self.mapping_layers = layers.Mapping(num_mapping_layers, mapping_fmaps, lr_mul=lr_mul, type=type, use_wscale=use_wscale)
+        self.first_gen_block = layers.FirstGenBlock(fmap_base=fmap_base, type=type, gain=gain, use_wscale=use_wscale)
         self.blocks = dict()
-        self.to_rgb_first = layers.ToRGB(num_channels)
+        self.to_rgb_first = layers.ToRGB(num_channels, use_wscale=use_wscale)
         self.to_rgb_new = dict()
         self.to_rgb_old = dict()
         self.to_rgb_last = dict()
         self.to_rgb_last_mix = dict()
         for res in range(3, self.resolution_log2 + 1):
-            self.to_rgb_old[res] = layers.ToRGB(num_channels)
-            self.blocks[res] = layers.GenBlock(res=res, fmap_base=fmap_base, type=type)
-            self.to_rgb_new[res] = layers.ToRGB(num_channels)
-            self.to_rgb_last[res] = layers.ToRGB(num_channels)
-            self.to_rgb_last_mix[res] = layers.ToRGB(num_channels)
+            self.to_rgb_old[res] = layers.ToRGB(num_channels, use_wscale=use_wscale)
+            self.blocks[res] = layers.GenBlock(res=res, fmap_base=fmap_base, type=type, use_wscale=use_wscale, gain=gain)
+            self.to_rgb_new[res] = layers.ToRGB(num_channels, use_wscale=use_wscale)
+            self.to_rgb_last[res] = layers.ToRGB(num_channels, use_wscale=use_wscale)
+            self.to_rgb_last_mix[res] = layers.ToRGB(num_channels, use_wscale=use_wscale)
 
         # Functions
         self.upscale = layers.upscale(2)

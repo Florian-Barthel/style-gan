@@ -139,6 +139,12 @@ def train_loop(dataset, epochs):
         print('dis_loss:', disc_loss.numpy())
 
         if (epoch + 1) % config.epochs_per_lod == 0:
+            if config.reset_optimizer and not increase_lod:
+                print('reset optimizer')
+                for var in generator_optimizer.variables():
+                    var.assign(tf.zeros_like(var))
+                for var in discriminator_optimizer.variables():
+                    var.assign(tf.zeros_like(var))
             increase_lod = not increase_lod
             var_list_index += 1
 

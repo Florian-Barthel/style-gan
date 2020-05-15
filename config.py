@@ -17,3 +17,7 @@ seed = np.random.rand(batch_size, latent_size, 1)
 
 lod_increase = 1 / epochs_per_lod
 max_lod = int(np.log2(resolution)) - 2
+
+
+# design options
+reset_optimizer = True
