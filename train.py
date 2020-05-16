@@ -10,9 +10,6 @@ import datetime
 import loss
 import process_labels
 
-# Set True for debugging
-tf.config.experimental_run_functions_eagerly(False)
-
 print(tf.__version__)
 print("Num GPUs Available: ", len(tf.config.experimental.list_physical_devices('GPU')))
 
@@ -42,8 +39,8 @@ discriminator_model = discriminator.Discriminator(resolution=config.resolution,
                                                   fmap_base=config.fmap_base,
                                                   num_channels=1)
 
-generator_optimizer = tf.keras.optimizers.Adam()
-discriminator_optimizer = tf.keras.optimizers.Adam()
+generator_optimizer = tf.keras.optimizers.Adam(beta_1=0.0, beta_2=0.99, epsilon=1e-8)
+discriminator_optimizer = tf.keras.optimizers.Adam(beta_1=0.0, beta_2=0.99, epsilon=1e-8)
 
 gen_var_list = []
 disc_var_list = []
@@ -51,52 +48,59 @@ var_list_index = 0
 
 
 @tf.function
-def train(images, latents, lod):
+def train_generator(latents, lod):
     global var_list_index
-    with tf.GradientTape() as gen_tape, tf.GradientTape() as disc_tape:
-        fake_images_out = generator_model([latents, lod])
-        real_scores = discriminator_model([images, lod])
-        fake_scores = discriminator_model([fake_images_out, lod])
-
-        # disc_loss = loss.wasserstein_loss(1, real_scores) + loss.wasserstein_loss(-1, fake_scores)
-        # gen_loss = loss.wasserstein_loss(1, fake_scores)
-        disc_loss = loss.d_logistic(real_scores, fake_scores)
-        gen_loss = loss.g_logistic(fake_scores)
+    with tf.GradientTape() as gen_tape:
+        gen_loss = loss.g_logistic_nonsaturating(generator_model,
+                                                 discriminator_model,
+                                                 latents=latents,
+                                                 lod=lod)
 
     gen_vars = gen_var_list[var_list_index]
-    disc_vars = disc_var_list[var_list_index]
-
     gradients_of_generator = gen_tape.gradient(gen_loss, gen_vars)
-    gradients_of_discriminator = disc_tape.gradient(disc_loss, disc_vars)
-
     generator_optimizer.apply_gradients(zip(gradients_of_generator, gen_vars))
+    return gen_loss
+
+
+@tf.function
+def train_discriminator(latents, images, lod):
+    global var_list_index
+    with tf.GradientTape() as disc_tape:
+        disc_loss = loss.d_logistic_simplegp(generator_model,
+                                             discriminator_model,
+                                             lod=lod,
+                                             images=images,
+                                             latents=latents)
+
+    disc_vars = disc_var_list[var_list_index]
+    gradients_of_discriminator = disc_tape.gradient(disc_loss, disc_vars)
     discriminator_optimizer.apply_gradients(zip(gradients_of_discriminator, disc_vars))
-    return gen_loss, disc_loss
+    return disc_loss
 
 
 def init(image_batch):
+    tf.config.experimental_run_functions_eagerly(True)
     lod = 0.0
-
     while lod <= config.max_lod:
         lod_res = int(2 ** (np.ceil(lod) + 2))
         latents = tf.Variable(np.random.rand(config.batch_size, config.latent_size, 1) * 2 - 1,
                               dtype=tf.dtypes.float32,
                               trainable=False)
-        resized_batch = process_labels.resize(image_batch, lod)
+        images = process_labels.resize(image_batch, lod)
 
         with tf.GradientTape() as gen_tape, tf.GradientTape() as disc_tape:
-            fake_images_out = generator_model([latents, lod])
-            real_scores = discriminator_model([resized_batch, lod])
-            fake_scores = discriminator_model([fake_images_out, lod])
-
-            # disc_loss = loss.wasserstein_loss(1, real_scores) + loss.wasserstein_loss(-1, fake_scores)
-            # gen_loss = loss.wasserstein_loss(1, fake_scores)
-            disc_loss = loss.d_logistic(real_scores, fake_scores)
-            gen_loss = loss.g_logistic(fake_scores)
+            disc_loss = loss.d_logistic_simplegp(generator_model,
+                                                 discriminator_model,
+                                                 lod=lod,
+                                                 images=images,
+                                                 latents=latents)
+            gen_loss = loss.g_logistic_nonsaturating(generator_model,
+                                                     discriminator_model,
+                                                     latents=latents,
+                                                     lod=lod)
 
         gen_vars = generator_model.trainable_variables
         disc_vars = discriminator_model.trainable_variables
-
         gen_var_list.append(gen_vars)
         disc_var_list.append(disc_vars)
 
@@ -110,6 +114,7 @@ def init(image_batch):
         print('num vars gen:', len(gen_vars))
         print('num vars disc:', len(disc_vars))
         lod += 0.5
+    tf.config.experimental_run_functions_eagerly(False)
 
 
 def train_loop(dataset, epochs):
@@ -126,7 +131,12 @@ def train_loop(dataset, epochs):
             latents = tf.Variable(np.random.rand(config.batch_size, config.latent_size, 1) * 2 - 1,
                                   dtype=tf.dtypes.float32,
                                   trainable=False)
-            gen_loss, disc_loss = train(resized_batch, latents, np.float32(lod))
+            gen_loss = train_generator(latents=latents, lod=np.float32(lod))
+
+            latents = tf.Variable(np.random.rand(config.batch_size, config.latent_size, 1) * 2 - 1,
+                                 dtype=tf.dtypes.float32,
+                                 trainable=False)
+            disc_loss = train_discriminator(latents=latents, images=resized_batch, lod=np.float32(lod))
             if iteration % 100:
                 with summary_writer.as_default():
                     tf.summary.scalar('gen_loss', gen_loss, step=iteration)

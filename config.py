@@ -1,14 +1,15 @@
 import numpy as np
 
 buffer_size = 60000
-batch_size = 32
+batch_size = 16
 resolution = 32
-latent_size = 128
+latent_size = 32
 num_mapping_layers = 8
-mapping_fmaps = 128
+mapping_fmaps = 32
 fmap_base = 128
+fmap_max = 32
 
-epochs_per_lod = 10
+epochs_per_lod = 20
 lod_decimals = 2
 
 epochs = 500

@@ -1,10 +1,11 @@
 import tensorflow as tf
 import numpy as np
-from tensorflow.keras.layers import Layer, MaxPooling2D, UpSampling2D, LeakyReLU, Dense
+from tensorflow.keras.layers import Layer, MaxPooling2D, UpSampling2D, LeakyReLU
+import config
 
 
-def calc_num_filters(stage, fmap_base):
-    return int(fmap_base / (2.0 ** stage))
+def calc_num_filters(stage, fmap_base, fmap_max=config.fmap_max, fmap_decay=1):
+    return min(int(fmap_base / (2.0 ** (stage * fmap_decay))), fmap_max)
 
 
 def upscale(factor=2):
