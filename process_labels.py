@@ -2,6 +2,7 @@ import tensorflow as tf
 import numpy as np
 
 
+@tf.function
 def resize(image_batch, lod):
     lod_res = int(2 ** (np.ceil(lod) + 2))
     resized_batch = tf.image.resize(image_batch, [lod_res, lod_res],

@@ -1,3 +1,5 @@
+import shutil
+
 import tensorflow as tf
 import generator
 import discriminator
@@ -20,8 +22,14 @@ os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 
 log_dir = "logs/" + datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 summary_writer = tf.summary.create_file_writer(logdir=log_dir)
+result_folder = 'runs/' + datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+if not os.path.exists(result_folder):
+    os.makedirs(result_folder)
+shutil.copyfile('./config.py', result_folder + '/config.py')
 
-train_dataset = dataset.get_ffhq()
+
+train_dataset = iter(dataset.get_ffhq())
+latent_dataset = iter(dataset.get_latent())
 
 generator_model = generator.Generator(num_mapping_layers=config.num_mapping_layers,
                                       mapping_fmaps=config.mapping_fmaps,
@@ -77,9 +85,7 @@ def init(image_batch):
     lod = 0.0
     while lod <= config.max_lod:
         lod_res = int(2 ** (np.ceil(lod) + 2))
-        latents = tf.Variable(np.random.rand(config.batch_size, config.latent_size, 1) * 2 - 1,
-                              dtype=tf.dtypes.float32,
-                              trainable=False)
+        latents = next(latent_dataset)
         images = process_labels.resize(image_batch, lod)
 
         with tf.GradientTape() as gen_tape, tf.GradientTape() as disc_tape:
@@ -123,14 +129,11 @@ def train_loop(dataset, epochs):
         for i in tqdm(range(config.lod_iterations)):
             image_batch = next(dataset)
             resized_batch = process_labels.resize(image_batch, lod)
-            latents = tf.Variable(np.random.rand(config.batch_size, config.latent_size, 1) * 2 - 1,
-                                  dtype=tf.dtypes.float32,
-                                  trainable=False)
+
+            latents = next(latent_dataset)
             gen_loss = train_generator(latents=latents, lod=np.float32(lod))
 
-            latents = tf.Variable(np.random.rand(config.batch_size, config.latent_size, 1) * 2 - 1,
-                                 dtype=tf.dtypes.float32,
-                                 trainable=False)
+            latents = next(latent_dataset)
             disc_loss = train_discriminator(latents=latents, images=resized_batch, lod=np.float32(lod))
             if iteration % 100:
                 with summary_writer.as_default():
@@ -168,9 +171,9 @@ def generate_and_save_images(epoch, test_input, lod):
         plt.subplot(4, 4, i + 1)
         plt.imshow(tf.cast(images[i, :, :, :] * 127.5 + 127.5, tf.uint8))
         plt.axis('off')
-    plt.savefig('images/image_at_epoch_{:04d}.png'.format(epoch))
+    plt.savefig(result_folder + '/image_at_iteration_{:04d}.png'.format(epoch))
     plt.show()
 
 
-init(next(iter(train_dataset)))
-train_loop(iter(train_dataset), config.epochs)
+init(next(train_dataset))
+train_loop(train_dataset, config.epochs)

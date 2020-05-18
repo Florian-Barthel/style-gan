@@ -1,11 +1,12 @@
 import tensorflow as tf
 import config
+import numpy
 
 
 def get_ffhq():
-    return tf.data.Dataset.list_files('E:/ffhq_256' + '/*.png').map(get_image).shuffle(
-        config.buffer_size).batch(
-        config.batch_size).repeat()
+    return tf.data.Dataset.list_files('E:/ffhq_256' + '/*.png').map(
+        get_image, num_parallel_calls=tf.data.experimental.AUTOTUNE).batch(
+        config.batch_size).repeat().prefetch(tf.data.experimental.AUTOTUNE)
 
 
 def get_mnist():
@@ -17,11 +18,24 @@ def get_mnist():
     return tf.data.Dataset.from_tensor_slices(
         train_images).shuffle(
         config.buffer_size).batch(
-        config.batch_size).repeat()
+        config.batch_size).repeat().prefetch(tf.data.experimental.AUTOTUNE)
 
 
+def get_latent():
+    return tf.data.Dataset.range(config.batch_size * 2).map(
+        create_random_vector, num_parallel_calls=tf.data.experimental.AUTOTUNE).batch(
+        config.batch_size).repeat().prefetch(tf.data.experimental.AUTOTUNE)
+
+
+@tf.function
 def get_image(file_name):
     image = tf.io.read_file(file_name)
     image = tf.image.decode_png(image, channels=3)
     image = tf.cast(image, tf.float32) / 127.5 - 1
     return image
+
+
+def create_random_vector(x):
+    return tf.random.normal(
+        [config.latent_size, 1], mean=0.0, stddev=1.0, dtype=tf.dtypes.float32
+    ) * 2 - 1

@@ -133,3 +133,4 @@ dmypy.json
 training_checkpoints
 images/*
 logs/*
+runs/*
