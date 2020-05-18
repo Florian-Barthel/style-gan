@@ -1,16 +1,18 @@
 import numpy as np
 
-buffer_size = 60000
+buffer_size = 1000
 batch_size = 16
-resolution = 32
-latent_size = 32
+resolution = 256
+latent_size = 128
 num_mapping_layers = 8
-mapping_fmaps = 32
+mapping_fmaps = 128
 fmap_base = 128
-fmap_max = 32
+fmap_max = 128
+num_channels = 3
 
 epochs_per_lod = 20
 lod_decimals = 2
+lod_iterations = 1000
 
 epochs = 500
 num_examples_to_generate = 16

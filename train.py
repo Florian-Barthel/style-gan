@@ -9,6 +9,8 @@ import numpy as np
 import datetime
 import loss
 import process_labels
+import dataset
+from tqdm import tqdm
 
 print(tf.__version__)
 print("Num GPUs Available: ", len(tf.config.experimental.list_physical_devices('GPU')))
@@ -19,25 +21,17 @@ os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 log_dir = "logs/" + datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 summary_writer = tf.summary.create_file_writer(logdir=log_dir)
 
-(train_images, _), (_, _) = tf.keras.datasets.mnist.load_data()
-
-train_images = train_images.reshape(train_images.shape[0], 28, 28, 1).astype('uint8')
-train_images = (train_images - 127.5) / 127.5
-
-train_dataset = tf.data.Dataset.from_tensor_slices(
-    train_images).shuffle(
-    config.buffer_size).batch(
-    config.batch_size)
+train_dataset = dataset.get_ffhq()
 
 generator_model = generator.Generator(num_mapping_layers=config.num_mapping_layers,
                                       mapping_fmaps=config.mapping_fmaps,
                                       resolution=config.resolution,
                                       fmap_base=config.fmap_base,
-                                      num_channels=1)
+                                      num_channels=config.num_channels)
 
 discriminator_model = discriminator.Discriminator(resolution=config.resolution,
                                                   fmap_base=config.fmap_base,
-                                                  num_channels=1)
+                                                  num_channels=config.num_channels)
 
 generator_optimizer = tf.keras.optimizers.Adam(beta_1=0.0, beta_2=0.99, epsilon=1e-8)
 discriminator_optimizer = tf.keras.optimizers.Adam(beta_1=0.0, beta_2=0.99, epsilon=1e-8)
@@ -126,7 +120,8 @@ def train_loop(dataset, epochs):
     global var_list_index
     for epoch in range(epochs):
         start = time.time()
-        for image_batch in dataset:
+        for i in tqdm(range(config.lod_iterations)):
+            image_batch = next(dataset)
             resized_batch = process_labels.resize(image_batch, lod)
             latents = tf.Variable(np.random.rand(config.batch_size, config.latent_size, 1) * 2 - 1,
                                   dtype=tf.dtypes.float32,
@@ -167,14 +162,15 @@ def train_loop(dataset, epochs):
 def generate_and_save_images(epoch, test_input, lod):
     images = generator_model([test_input, lod])
 
-    plt.figure(figsize=(4, 4))
+    res = int(np.sqrt(config.num_examples_to_generate))
+    plt.figure(figsize=(res, res))
     for i in range(config.num_examples_to_generate):
         plt.subplot(4, 4, i + 1)
-        plt.imshow(images[i, :, :, 0] * 127.5 + 127.5, cmap='gray')
+        plt.imshow(images[i, :, :, 0] * 127.5 + 127.5)
         plt.axis('off')
     plt.savefig('images/image_at_epoch_{:04d}.png'.format(epoch))
     plt.show()
 
 
 init(next(iter(train_dataset)))
-train_loop(train_dataset, config.epochs)
+train_loop(iter(train_dataset), config.epochs)
