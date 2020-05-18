@@ -10,7 +10,7 @@ class Generator(Model):
                  mapping_fmaps=32,
                  resolution=64,
                  type=tf.float32,
-                 num_channels=1,
+                 num_channels=3,
                  fmap_base=32,
                  lr_mul=0.01,
                  gain=np.sqrt(2),

@@ -143,7 +143,7 @@ def train_loop(dataset, epochs):
         print('gen_loss:', gen_loss.numpy())
         print('dis_loss:', disc_loss.numpy())
 
-        if (epoch + 1) % config.epochs_per_lod == 0:
+        if (epoch + 1) % config.iterations_per_lod == 0:
             if config.reset_optimizer and not increase_lod:
                 print('reset optimizer')
                 for var in generator_optimizer.variables():
@@ -166,7 +166,7 @@ def generate_and_save_images(epoch, test_input, lod):
     plt.figure(figsize=(res, res))
     for i in range(config.num_examples_to_generate):
         plt.subplot(4, 4, i + 1)
-        plt.imshow(images[i, :, :, 0] * 127.5 + 127.5)
+        plt.imshow(tf.cast(images[i, :, :, :] * 127.5 + 127.5, tf.uint8))
         plt.axis('off')
     plt.savefig('images/image_at_epoch_{:04d}.png'.format(epoch))
     plt.show()

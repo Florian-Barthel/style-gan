@@ -5,7 +5,7 @@ import config
 def get_ffhq():
     return tf.data.Dataset.list_files('E:/ffhq_256' + '/*.png').map(get_image).shuffle(
         config.buffer_size).batch(
-        config.batch_size)
+        config.batch_size).repeat()
 
 
 def get_mnist():
@@ -17,7 +17,7 @@ def get_mnist():
     return tf.data.Dataset.from_tensor_slices(
         train_images).shuffle(
         config.buffer_size).batch(
-        config.batch_size)
+        config.batch_size).repeat()
 
 
 def get_image(file_name):

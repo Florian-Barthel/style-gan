@@ -10,16 +10,16 @@ fmap_base = 128
 fmap_max = 128
 num_channels = 3
 
-epochs_per_lod = 20
+iterations_per_lod = 10
 lod_decimals = 2
 lod_iterations = 1000
+lod_increase = 1 / iterations_per_lod
+max_lod = int(np.log2(resolution)) - 2
 
 epochs = 500
 num_examples_to_generate = 16
 seed = np.random.rand(batch_size, latent_size, 1)
 
-lod_increase = 1 / epochs_per_lod
-max_lod = int(np.log2(resolution)) - 2
 
 
 # design options
