@@ -1,10 +1,9 @@
 import tensorflow as tf
 import config
-import numpy
 
 
-def get_ffhq():
-    return tf.data.Dataset.list_files('E:/ffhq_256' + '/*.png').map(
+def get_ffhq(res):
+    return tf.data.Dataset.list_files('E:/ffhq_' + str(res) + '/*.png').map(
         get_image, num_parallel_calls=tf.data.experimental.AUTOTUNE).batch(
         config.batch_size).repeat().prefetch(tf.data.experimental.AUTOTUNE)
 

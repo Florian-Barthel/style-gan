@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import datetime
 import loss
-import process_labels
+import image_utils
 import dataset
 from tqdm import tqdm
 
@@ -26,10 +26,6 @@ result_folder = 'runs/' + datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 if not os.path.exists(result_folder):
     os.makedirs(result_folder)
 shutil.copyfile('./config.py', result_folder + '/config.py')
-
-
-train_dataset = iter(dataset.get_ffhq())
-latent_dataset = iter(dataset.get_latent())
 
 generator_model = generator.Generator(num_mapping_layers=config.num_mapping_layers,
                                       mapping_fmaps=config.mapping_fmaps,
@@ -80,24 +76,25 @@ def train_discriminator(latents, images, lod):
     return disc_loss
 
 
-def init(image_batch):
+def init():
+    image_dataset = iter(dataset.get_ffhq(256))
+    latent_dataset = iter(dataset.get_latent())
+
     tf.config.experimental_run_functions_eagerly(True)
     lod = 0.0
     while lod <= config.max_lod:
         lod_res = int(2 ** (np.ceil(lod) + 2))
-        latents = next(latent_dataset)
-        images = process_labels.resize(image_batch, lod)
-
+        resized_images = image_utils.resize(next(image_dataset), lod)
         with tf.GradientTape() as gen_tape, tf.GradientTape() as disc_tape:
+            gen_loss = loss.g_logistic_nonsaturating(generator_model,
+                                                     discriminator_model,
+                                                     latents=next(latent_dataset),
+                                                     lod=lod)
             disc_loss = loss.d_logistic_simplegp(generator_model,
                                                  discriminator_model,
                                                  lod=lod,
-                                                 images=images,
-                                                 latents=latents)
-            gen_loss = loss.g_logistic_nonsaturating(generator_model,
-                                                     discriminator_model,
-                                                     latents=latents,
-                                                     lod=lod)
+                                                 images=resized_images,
+                                                 latents=next(latent_dataset))
 
         gen_vars = generator_model.trainable_variables
         disc_vars = discriminator_model.trainable_variables
@@ -117,36 +114,31 @@ def init(image_batch):
     tf.config.experimental_run_functions_eagerly(False)
 
 
-def train_loop(dataset, epochs):
+def train_loop():
+    image_dataset = iter(dataset.get_ffhq(4))
+    latent_dataset = iter(dataset.get_latent())
     lod = 0.0
     gen_loss = 0
     disc_loss = 0
     increase_lod = False
     iteration = 1
     global var_list_index
-    for epoch in range(epochs):
+    for epoch in range(1, config.epochs):
         start = time.time()
-        for i in tqdm(range(config.lod_iterations)):
-            image_batch = next(dataset)
-            resized_batch = process_labels.resize(image_batch, lod)
+        for _ in tqdm(range(config.lod_iterations)):
+            image_batch = image_utils.fade_lod(next(image_dataset), lod)
+            gen_loss = train_generator(latents=next(latent_dataset), lod=np.float32(lod))
+            disc_loss = train_discriminator(latents=next(latent_dataset), images=image_batch, lod=np.float32(lod))
 
-            latents = next(latent_dataset)
-            gen_loss = train_generator(latents=latents, lod=np.float32(lod))
-
-            latents = next(latent_dataset)
-            disc_loss = train_discriminator(latents=latents, images=resized_batch, lod=np.float32(lod))
-            if iteration % 100:
-                with summary_writer.as_default():
-                    tf.summary.scalar('gen_loss', gen_loss, step=iteration)
-                    tf.summary.scalar('disc_loss', disc_loss, step=iteration)
-            iteration += 1
-
-        generate_and_save_images(epoch + 1, config.seed, lod)
+        generate_and_save_images(epoch, config.seed, lod)
         print('lod:', lod)
         print('gen_loss:', gen_loss.numpy())
         print('dis_loss:', disc_loss.numpy())
+        with summary_writer.as_default():
+            tf.summary.scalar('gen_loss', gen_loss, step=iteration)
+            tf.summary.scalar('disc_loss', disc_loss, step=iteration)
 
-        if (epoch + 1) % config.iterations_per_lod == 0:
+        if epoch % config.iterations_per_lod == 0:
             if config.reset_optimizer and not increase_lod:
                 print('reset optimizer')
                 for var in generator_optimizer.variables():
@@ -158,8 +150,10 @@ def train_loop(dataset, epochs):
 
         if increase_lod and lod < config.max_lod:
             lod = np.around(lod + config.lod_increase, decimals=config.lod_decimals)
+            if epoch % config.iterations_per_lod == 0:
+                image_dataset = iter(dataset.get_ffhq(int(2**(np.ceil(lod) + 2))))
 
-        print('Time for epoch {} is {} sec\n'.format(epoch + 1, time.time() - start))
+        print('Time for epoch {} is {} sec\n'.format(epoch, time.time() - start))
 
 
 def generate_and_save_images(epoch, test_input, lod):
@@ -169,11 +163,11 @@ def generate_and_save_images(epoch, test_input, lod):
     plt.figure(figsize=(res, res))
     for i in range(config.num_examples_to_generate):
         plt.subplot(4, 4, i + 1)
-        plt.imshow(tf.cast(images[i, :, :, :] * 127.5 + 127.5, tf.uint8))
+        plt.imshow(tf.cast(tf.clip_by_value(images[i, :, :, :] * 127.5 + 127.5, 0, 255), tf.uint8))
         plt.axis('off')
     plt.savefig(result_folder + '/image_at_iteration_{:04d}.png'.format(epoch))
     plt.show()
 
 
-init(next(train_dataset))
-train_loop(train_dataset, config.epochs)
+init()
+train_loop()
