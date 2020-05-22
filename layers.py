@@ -33,8 +33,8 @@ class CustomDense(Layer):
         self.runtime_coef = None
 
     def build(self, input_shape):
-        num_channels_input = input_shape[-1]
-        he_std = self.gain / np.sqrt(num_channels_input)
+        fan_in = input_shape[-1]
+        he_std = self.gain / np.sqrt(fan_in)
         if self.use_wscale:
             self.init_std = 1.0 / self.lr_mul
             self.runtime_coef = he_std * self.lr_mul
@@ -42,7 +42,7 @@ class CustomDense(Layer):
             self.init_std = he_std / self.lr_mul
             self.runtime_coef = self.lr_mul
 
-        self.weight = tf.Variable(tf.random.normal([num_channels_input, self.units], stddev=self.init_std),
+        self.weight = tf.Variable(tf.random.normal([input_shape[-1], self.units], stddev=self.init_std),
                                   trainable=True,
                                   dtype=self.type)
         super(CustomDense, self).build(input_shape)
@@ -66,8 +66,8 @@ class CustomConv2d(Layer):
         self.runtime_coef = None
 
     def build(self, input_shape):
-        num_channels_input = input_shape[-1]
-        he_std = self.gain / np.sqrt(num_channels_input)
+        fan_in = self.kernel * self.kernel * input_shape[-1]
+        he_std = self.gain / np.sqrt(fan_in)
         if self.use_wscale:
             self.init_std = 1.0 / self.lr_mul
             self.runtime_coef = he_std * self.lr_mul
@@ -75,7 +75,8 @@ class CustomConv2d(Layer):
             self.init_std = he_std / self.lr_mul
             self.runtime_coef = self.lr_mul
 
-        self.weight = tf.Variable(tf.random.normal([self.kernel, self.kernel, num_channels_input, self.filters], stddev=self.init_std),
+        self.weight = tf.Variable(tf.random.normal([self.kernel, self.kernel, input_shape[-1], self.filters],
+                                                   stddev=self.init_std),
                                   trainable=True,
                                   dtype=self.type)
         super(CustomConv2d, self).build(input_shape)
@@ -153,7 +154,8 @@ class GenBlock(Layer):
         self.conv1 = CustomConv2d(filters=calc_num_filters(res - 1, fmap_base), kernel=3, gain=gain)
         self.blur = Blur2d()
         self.epilogue_1 = LayerEpilogue(layer_index=res * 2 - 4, type=type, use_wscale=use_wscale)
-        self.conv2 = CustomConv2d(filters=calc_num_filters(res - 1, fmap_base), kernel=3, gain=gain, use_wscale=use_wscale)
+        self.conv2 = CustomConv2d(filters=calc_num_filters(res - 1, fmap_base), kernel=3, gain=gain,
+                                  use_wscale=use_wscale)
         self.epilogue_2 = LayerEpilogue(layer_index=res * 2 - 3, type=type, use_wscale=use_wscale)
 
     def call(self, inputs, **kwargs):
@@ -170,11 +172,13 @@ class GenBlock(Layer):
 class DiscBlock(Layer):
     def __init__(self, res, fmap_base, gain, use_wscale):
         super(DiscBlock, self).__init__()
-        self.conv1 = CustomConv2d(filters=calc_num_filters(res - 1, fmap_base), kernel=3, gain=gain, use_wscale=use_wscale)
+        self.conv1 = CustomConv2d(filters=calc_num_filters(res - 1, fmap_base), kernel=3, gain=gain,
+                                  use_wscale=use_wscale)
         self.apply_bias1 = ApplyBias()
         self.activation1 = activation()
         self.blur = Blur2d()
-        self.conv2 = CustomConv2d(filters=calc_num_filters(res - 2, fmap_base), kernel=3, gain=gain, use_wscale=use_wscale)
+        self.conv2 = CustomConv2d(filters=calc_num_filters(res - 2, fmap_base), kernel=3, gain=gain,
+                                  use_wscale=use_wscale)
         self.downscale = downscale()
         self.apply_bias2 = ApplyBias()
         self.activation2 = activation()
@@ -276,7 +280,8 @@ class ToRGB(Layer):
 class FromRGB(Layer):
     def __init__(self, res, fmap_base, gain, use_wscale):
         super(FromRGB, self).__init__()
-        self.conv = CustomConv2d(filters=calc_num_filters(res - 1, fmap_base=fmap_base), kernel=1, gain=gain, use_wscale=use_wscale)
+        self.conv = CustomConv2d(filters=calc_num_filters(res - 1, fmap_base=fmap_base), kernel=1, gain=gain,
+                                 use_wscale=use_wscale)
         self.apply_bias = ApplyBias()
         self.activation = activation()
 
