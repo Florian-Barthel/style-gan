@@ -13,18 +13,16 @@ def g_logistic_nonsaturating(generator, discriminator, latents, lod):
     return loss
 
 
-def d_logistic_simplegp(generator, discriminator, lod, images, latents, disc_vars, r1_gamma=10.0):
+def d_logistic_simplegp(generator, discriminator, lod, images, latents, r1_gamma=10.0):
     fake_images_out = generator([latents, lod])
     fake_scores = discriminator([fake_images_out, lod])
     with tf.GradientTape() as disc_tape:
+        disc_tape.watch(images)
         real_scores = discriminator([images, lod])
         real_loss = tf.math.reduce_sum(real_scores)
-    real_grads = disc_tape.gradient(real_loss, disc_vars)
 
-    r1_penalty = 0
-    for grad in real_grads:
-        squared_grads = tf.math.square(grad)
-        r1_penalty += tf.math.reduce_sum(squared_grads)
+    real_grads = disc_tape.gradient(real_loss, [images])[0]
+    r1_penalty = tf.math.reduce_sum(tf.math.square(real_grads), axis=[1, 2, 3])
 
     loss = tf.nn.softplus(fake_scores)
     loss += tf.nn.softplus(-real_scores)

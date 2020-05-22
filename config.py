@@ -10,9 +10,9 @@ fmap_base = 256
 fmap_max = 256
 num_channels = 3
 
-iterations_per_lod = 40
+iterations_per_lod = 20
 lod_decimals = 3
-lod_iterations = 4000
+lod_iterations = 2000
 lod_increase = 1 / iterations_per_lod
 max_lod = int(np.log2(resolution)) - 2
 

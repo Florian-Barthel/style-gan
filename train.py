@@ -1,18 +1,16 @@
 import shutil
-
 import tensorflow as tf
+import numpy as np
+from tqdm import tqdm
+import os
+
 import generator
 import discriminator
-import os
 import config
-import time
-import numpy as np
 import loss
 import image_utils
 import dataset
-from tqdm import tqdm
 import save_images
-
 
 # Setup Environment
 print(tf.__version__)
@@ -20,13 +18,11 @@ print("Num GPUs Available: ", len(tf.config.experimental.list_physical_devices('
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 
-
 # Create Directories
 summary_writer = tf.summary.create_file_writer(logdir=config.log_dir)
 if not os.path.exists(config.result_folder):
     os.makedirs(config.result_folder)
 shutil.copyfile('./config.py', config.result_folder + '/config.py')
-
 
 # Initialize Models
 generator_model = generator.Generator(num_mapping_layers=config.num_mapping_layers,
@@ -36,7 +32,6 @@ generator_model = generator.Generator(num_mapping_layers=config.num_mapping_laye
                                       num_channels=config.num_channels)
 discriminator_model = discriminator.Discriminator(resolution=config.resolution,
                                                   fmap_base=config.fmap_base)
-
 
 # Initialize Optimizer
 generator_optimizer = tf.keras.optimizers.Adam(beta_1=0.0, beta_2=0.99, epsilon=1e-8)
@@ -67,11 +62,11 @@ def train_discriminator(latents, images, lod):
     global var_list_index
     disc_vars = disc_var_list[var_list_index]
     with tf.GradientTape() as disc_tape:
-        disc_loss = loss.d_logistic(generator_model,
-                                    discriminator_model,
-                                    lod=lod,
-                                    images=images,
-                                    latents=latents)
+        disc_loss = loss.d_logistic_simplegp(generator_model,
+                                             discriminator_model,
+                                             lod=lod,
+                                             images=images,
+                                             latents=latents)
 
     gradients_of_discriminator = disc_tape.gradient(disc_loss, disc_vars)
     discriminator_optimizer.apply_gradients(zip(gradients_of_discriminator, disc_vars))
@@ -82,7 +77,7 @@ def init():
     image_dataset = iter(dataset.get_ffhq(256))
     latent_dataset = iter(dataset.get_latent())
 
-    tf.config.experimental_run_functions_eagerly(True)
+    tf.config.experimental_run_functions_eagerly(False)
     lod = 0.0
     while lod <= config.max_lod:
         lod_res = int(2 ** (np.ceil(lod) + 2))
@@ -91,12 +86,12 @@ def init():
             gen_loss = loss.g_logistic_nonsaturating(generator_model,
                                                      discriminator_model,
                                                      latents=next(latent_dataset),
-                                                     lod=lod)
-            disc_loss = loss.d_logistic(generator_model,
-                                        discriminator_model,
-                                        lod=lod,
-                                        images=resized_images,
-                                        latents=next(latent_dataset))
+                                                     lod=np.float32(lod))
+            disc_loss = loss.d_logistic_simplegp(generator_model,
+                                                 discriminator_model,
+                                                 lod=np.float32(lod),
+                                                 images=resized_images,
+                                                 latents=next(latent_dataset))
 
         gen_vars = generator_model.trainable_variables
         disc_vars = discriminator_model.trainable_variables
@@ -125,7 +120,6 @@ def train_loop():
     increase_lod = False
     global var_list_index
     for epoch in range(1, config.epochs):
-        start = time.time()
         for _ in tqdm(range(config.lod_iterations)):
             image_batch = image_utils.fade_lod(next(image_dataset), lod)
             gen_loss = train_generator(latents=next(latent_dataset), lod=np.float32(lod))
@@ -154,8 +148,6 @@ def train_loop():
             if epoch % config.iterations_per_lod == 0:
                 print('change dataset')
                 image_dataset = iter(dataset.get_ffhq(int(2 ** (np.ceil(lod) + 2))))
-
-        print('Time for epoch {} is {} sec\n'.format(epoch, time.time() - start))
 
 
 init()

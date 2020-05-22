@@ -26,9 +26,9 @@ class CustomDense(Layer):
         self.units = units
         self.lr_mul = lr_mul
         self.type = type
-        self.weight = None
         self.use_wscale = use_wscale
         self.gain = gain
+        self.weight = None
         self.init_std = None
         self.runtime_coef = None
 
@@ -59,9 +59,9 @@ class CustomConv2d(Layer):
         self.kernel = kernel
         self.lr_mul = lr_mul
         self.type = type
-        self.weight = None
         self.use_wscale = use_wscale
         self.gain = gain
+        self.weight = None
         self.init_std = None
         self.runtime_coef = None
 
@@ -110,9 +110,9 @@ class Mapping(Layer):
 class ApplyBias(Layer):
     def __init__(self, lr_mul=1, type=tf.float32):
         super(ApplyBias, self).__init__()
-        self.bias = None
         self.lr_mul = lr_mul
         self.type = type
+        self.bias = None
 
     def build(self, input_shape):
         self.bias = tf.Variable(tf.zeros([input_shape[-1]]),
