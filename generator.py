@@ -19,9 +19,6 @@ class Generator(Model):
         super(Generator, self).__init__()
 
         # Config vars
-        self.num_mapping_layers = num_mapping_layers
-        self.mapping_fmaps = mapping_fmaps
-        self.fmap_base = fmap_base
         self.resolution_log2 = int(np.log2(resolution))
 
         # Layers

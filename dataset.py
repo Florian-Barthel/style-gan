@@ -1,4 +1,5 @@
 import tensorflow as tf
+import numpy as np
 import config
 
 
@@ -15,8 +16,7 @@ def get_mnist():
     train_images = (train_images - 127.5) / 127.5
 
     return tf.data.Dataset.from_tensor_slices(
-        train_images).shuffle(
-        config.buffer_size).batch(
+        train_images).batch(
         config.batch_size).repeat().prefetch(tf.data.experimental.AUTOTUNE)
 
 
@@ -30,11 +30,11 @@ def get_latent():
 def get_image(file_name):
     image = tf.io.read_file(file_name)
     image = tf.image.decode_png(image, channels=3)
+    if np.random.normal() > 0 and config.flip_images:
+        image = tf.image.flip_left_right(image)
     image = tf.cast(image, tf.float32) / 127.5 - 1
     return image
 
 
 def create_random_vector(x):
-    return tf.random.normal(
-        [config.latent_size, 1], mean=0.0, stddev=1.0, dtype=tf.dtypes.float32
-    ) * 2 - 1
+    return tf.random.normal([config.latent_size, 1], mean=0.0, stddev=1.0, dtype=tf.dtypes.float32)

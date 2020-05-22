@@ -6,37 +6,39 @@ import discriminator
 import os
 import config
 import time
-import matplotlib.pyplot as plt
 import numpy as np
-import datetime
 import loss
 import image_utils
 import dataset
 from tqdm import tqdm
+import save_images
 
+
+# Setup Environment
 print(tf.__version__)
 print("Num GPUs Available: ", len(tf.config.experimental.list_physical_devices('GPU')))
-
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 
-log_dir = "logs/" + datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-summary_writer = tf.summary.create_file_writer(logdir=log_dir)
-result_folder = 'runs/' + datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-if not os.path.exists(result_folder):
-    os.makedirs(result_folder)
-shutil.copyfile('./config.py', result_folder + '/config.py')
 
+# Create Directories
+summary_writer = tf.summary.create_file_writer(logdir=config.log_dir)
+if not os.path.exists(config.result_folder):
+    os.makedirs(config.result_folder)
+shutil.copyfile('./config.py', config.result_folder + '/config.py')
+
+
+# Initialize Models
 generator_model = generator.Generator(num_mapping_layers=config.num_mapping_layers,
                                       mapping_fmaps=config.mapping_fmaps,
                                       resolution=config.resolution,
                                       fmap_base=config.fmap_base,
                                       num_channels=config.num_channels)
-
 discriminator_model = discriminator.Discriminator(resolution=config.resolution,
-                                                  fmap_base=config.fmap_base,
-                                                  num_channels=config.num_channels)
+                                                  fmap_base=config.fmap_base)
 
+
+# Initialize Optimizer
 generator_optimizer = tf.keras.optimizers.Adam(beta_1=0.0, beta_2=0.99, epsilon=1e-8)
 discriminator_optimizer = tf.keras.optimizers.Adam(beta_1=0.0, beta_2=0.99, epsilon=1e-8)
 
@@ -63,14 +65,14 @@ def train_generator(latents, lod):
 @tf.function
 def train_discriminator(latents, images, lod):
     global var_list_index
-    with tf.GradientTape() as disc_tape:
-        disc_loss = loss.d_logistic_simplegp(generator_model,
-                                             discriminator_model,
-                                             lod=lod,
-                                             images=images,
-                                             latents=latents)
-
     disc_vars = disc_var_list[var_list_index]
+    with tf.GradientTape() as disc_tape:
+        disc_loss = loss.d_logistic(generator_model,
+                                    discriminator_model,
+                                    lod=lod,
+                                    images=images,
+                                    latents=latents)
+
     gradients_of_discriminator = disc_tape.gradient(disc_loss, disc_vars)
     discriminator_optimizer.apply_gradients(zip(gradients_of_discriminator, disc_vars))
     return disc_loss
@@ -90,11 +92,11 @@ def init():
                                                      discriminator_model,
                                                      latents=next(latent_dataset),
                                                      lod=lod)
-            disc_loss = loss.d_logistic_simplegp(generator_model,
-                                                 discriminator_model,
-                                                 lod=lod,
-                                                 images=resized_images,
-                                                 latents=next(latent_dataset))
+            disc_loss = loss.d_logistic(generator_model,
+                                        discriminator_model,
+                                        lod=lod,
+                                        images=resized_images,
+                                        latents=next(latent_dataset))
 
         gen_vars = generator_model.trainable_variables
         disc_vars = discriminator_model.trainable_variables
@@ -121,7 +123,6 @@ def train_loop():
     gen_loss = 0
     disc_loss = 0
     increase_lod = False
-    iteration = 1
     global var_list_index
     for epoch in range(1, config.epochs):
         start = time.time()
@@ -130,13 +131,13 @@ def train_loop():
             gen_loss = train_generator(latents=next(latent_dataset), lod=np.float32(lod))
             disc_loss = train_discriminator(latents=next(latent_dataset), images=image_batch, lod=np.float32(lod))
 
-        generate_and_save_images(epoch, config.seed, lod)
+        save_images.generate_and_save_images(generator_model, epoch, lod)
         print('lod:', lod)
         print('gen_loss:', gen_loss.numpy())
         print('dis_loss:', disc_loss.numpy())
         with summary_writer.as_default():
-            tf.summary.scalar('gen_loss', gen_loss, step=iteration)
-            tf.summary.scalar('disc_loss', disc_loss, step=iteration)
+            tf.summary.scalar('gen_loss', gen_loss, step=epoch)
+            tf.summary.scalar('disc_loss', disc_loss, step=epoch)
 
         if epoch % config.iterations_per_lod == 0:
             if config.reset_optimizer and not increase_lod:
@@ -151,22 +152,10 @@ def train_loop():
         if increase_lod and lod < config.max_lod:
             lod = np.around(lod + config.lod_increase, decimals=config.lod_decimals)
             if epoch % config.iterations_per_lod == 0:
-                image_dataset = iter(dataset.get_ffhq(int(2**(np.ceil(lod) + 2))))
+                print('change dataset')
+                image_dataset = iter(dataset.get_ffhq(int(2 ** (np.ceil(lod) + 2))))
 
         print('Time for epoch {} is {} sec\n'.format(epoch, time.time() - start))
-
-
-def generate_and_save_images(epoch, test_input, lod):
-    images = generator_model([test_input, lod])
-
-    res = int(np.sqrt(config.num_examples_to_generate))
-    plt.figure(figsize=(res, res))
-    for i in range(config.num_examples_to_generate):
-        plt.subplot(4, 4, i + 1)
-        plt.imshow(tf.cast(tf.clip_by_value(images[i, :, :, :] * 127.5 + 127.5, 0, 255), tf.uint8))
-        plt.axis('off')
-    plt.savefig(result_folder + '/image_at_iteration_{:04d}.png'.format(epoch))
-    plt.show()
 
 
 init()

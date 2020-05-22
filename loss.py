@@ -1,16 +1,8 @@
 import tensorflow as tf
-import config
-import numpy as np
 
 
 def wasserstein_loss(y_true, y_pred):
     return tf.reduce_mean(y_true * y_pred)
-
-
-def d_logistic(real_scores_out, fake_scores_out):
-    loss = tf.nn.softplus(fake_scores_out)
-    loss += tf.nn.softplus(-real_scores_out)
-    return tf.reduce_mean(loss)
 
 
 def g_logistic_nonsaturating(generator, discriminator, latents, lod):
@@ -21,11 +13,29 @@ def g_logistic_nonsaturating(generator, discriminator, latents, lod):
     return loss
 
 
-def d_logistic_simplegp(generator, discriminator, lod, images, latents, r1_gamma=10.0, r2_gamma=0.0):
+def d_logistic_simplegp(generator, discriminator, lod, images, latents, disc_vars, r1_gamma=10.0):
+    fake_images_out = generator([latents, lod])
+    fake_scores = discriminator([fake_images_out, lod])
+    with tf.GradientTape() as disc_tape:
+        real_scores = discriminator([images, lod])
+        real_loss = tf.math.reduce_sum(real_scores)
+    real_grads = disc_tape.gradient(real_loss, disc_vars)
+
+    r1_penalty = 0
+    for grad in real_grads:
+        squared_grads = tf.math.square(grad)
+        r1_penalty += tf.math.reduce_sum(squared_grads)
+
+    loss = tf.nn.softplus(fake_scores)
+    loss += tf.nn.softplus(-real_scores)
+    loss += r1_penalty * (r1_gamma * 0.5)
+    return tf.reduce_mean(loss)
+
+
+def d_logistic(generator, discriminator, lod, images, latents):
     fake_images_out = generator([latents, lod])
     real_scores = discriminator([images, lod])
     fake_scores = discriminator([fake_images_out, lod])
     loss = tf.nn.softplus(fake_scores)
     loss += tf.nn.softplus(-real_scores)
-    loss = tf.reduce_mean(loss)
-    return loss
+    return tf.reduce_mean(loss)

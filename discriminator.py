@@ -6,8 +6,6 @@ import numpy as np
 class Discriminator(tf.keras.models.Model):
     def __init__(self,
                  resolution=32,
-                 type=tf.float32,
-                 num_channels=1,
                  fmap_base=32,
                  gain=np.sqrt(2),
                  use_wscale=True):
@@ -15,9 +13,6 @@ class Discriminator(tf.keras.models.Model):
         super(Discriminator, self).__init__()
 
         # Config vars
-        self.fmap_base = fmap_base
-        self.type = type
-        self.num_channels = num_channels
         self.resolution_log2 = int(np.log2(resolution))
 
         # Layers
@@ -26,11 +21,11 @@ class Discriminator(tf.keras.models.Model):
         self.blocks = dict()
         self.from_rgb_downscaled = dict()
         for res in range(self.resolution_log2, 2, -1):
-            self.from_rgb_first[res] = layers.FromRGB(res, self.fmap_base, use_wscale=use_wscale, gain=gain)
-            self.blocks[res] = layers.DiscBlock(res, self.fmap_base, use_wscale=use_wscale, gain=gain)
-            self.from_rgb_downscaled[res] = layers.FromRGB(res - 1, self.fmap_base, use_wscale=use_wscale, gain=gain)
-        self.from_rgb_first[2] = layers.FromRGB(2, self.fmap_base, use_wscale=use_wscale, gain=gain)
-        self.last_block = layers.LastDiscBlock(self.fmap_base, gain=gain, use_wscale=use_wscale)
+            self.from_rgb_first[res] = layers.FromRGB(res, fmap_base, use_wscale=use_wscale, gain=gain)
+            self.blocks[res] = layers.DiscBlock(res, fmap_base, use_wscale=use_wscale, gain=gain)
+            self.from_rgb_downscaled[res] = layers.FromRGB(res - 1, fmap_base, use_wscale=use_wscale, gain=gain)
+        self.from_rgb_first[2] = layers.FromRGB(2, fmap_base, use_wscale=use_wscale, gain=gain)
+        self.last_block = layers.LastDiscBlock(fmap_base, gain=gain, use_wscale=use_wscale)
 
         # Functions
         self.downscale = layers.downscale()
