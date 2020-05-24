@@ -21,8 +21,8 @@ def d_logistic_simplegp(generator, discriminator, lod, images, latents, r1_gamma
         real_scores = discriminator([images, lod])
         real_loss = tf.math.reduce_sum(real_scores)
 
-    real_grads = disc_tape.gradient(real_loss, [images])[0]
-    r1_penalty = tf.math.reduce_sum(tf.math.square(real_grads), axis=[1, 2, 3])
+    real_grads = disc_tape.gradient(real_loss, images)
+    r1_penalty = tf.math.reduce_sum(tf.math.square(real_grads))
 
     loss = tf.nn.softplus(fake_scores)
     loss += tf.nn.softplus(-real_scores)

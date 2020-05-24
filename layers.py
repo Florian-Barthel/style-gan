@@ -135,7 +135,7 @@ class FirstGenBlock(Layer):
         self.constant = None
 
     def build(self, input_shape):
-        self.constant = tf.Variable(tf.random.normal([1, 4, 4, calc_num_filters(1, self.fmap_base)]),
+        self.constant = tf.Variable(tf.ones([1, 4, 4, calc_num_filters(1, self.fmap_base)]),
                                     trainable=True,
                                     dtype=self.type)
         self.constant = tf.tile(self.constant, [input_shape[0], 1, 1, 1])

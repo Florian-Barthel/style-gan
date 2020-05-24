@@ -26,17 +26,11 @@ class Generator(Model):
         self.mapping_layers = layers.Mapping(num_mapping_layers, mapping_fmaps, lr_mul=lr_mul, type=type, use_wscale=use_wscale)
         self.first_gen_block = layers.FirstGenBlock(fmap_base=fmap_base, type=type, gain=gain, use_wscale=use_wscale)
         self.blocks = dict()
-        self.to_rgb_first = layers.ToRGB(num_channels, use_wscale=use_wscale)
-        self.to_rgb_new = dict()
-        self.to_rgb_old = dict()
-        self.to_rgb_last = dict()
-        self.to_rgb_last_mix = dict()
+        self.to_rgb = dict()
+        self.to_rgb[2] = layers.ToRGB(num_channels, use_wscale=use_wscale)
         for res in range(3, self.resolution_log2 + 1):
-            self.to_rgb_old[res] = layers.ToRGB(num_channels, use_wscale=use_wscale)
             self.blocks[res] = layers.GenBlock(res=res, fmap_base=fmap_base, type=type, use_wscale=use_wscale, gain=gain)
-            self.to_rgb_new[res] = layers.ToRGB(num_channels, use_wscale=use_wscale)
-            self.to_rgb_last[res] = layers.ToRGB(num_channels, use_wscale=use_wscale)
-            self.to_rgb_last_mix[res] = layers.ToRGB(num_channels, use_wscale=use_wscale)
+            self.to_rgb[res] = layers.ToRGB(num_channels, use_wscale=use_wscale)
 
         # Functions
         self.upscale = layers.upscale(2)
@@ -48,20 +42,24 @@ class Generator(Model):
         latents = self.mapping_layers(latents)
 
         x = self.first_gen_block(latents)
-        result = self.to_rgb_first(x)
+        if lod_input == 0.0:
+            return self.to_rgb[2](x)
+
         lod_counter = int(np.ceil(lod_input))
         lod_remainder = lod_input - np.floor(lod_input)
 
         for res in range(3, min(int(np.ceil(lod_input)) + 3, self.resolution_log2 + 1)):
-            if lod_counter == 1 and lod_remainder > 0:
-                rgb_image = self.to_rgb_old[res](x)
-                prev = self.upscale(rgb_image)
-                x = self.blocks[res]([x, latents])
-                new = self.to_rgb_new[res](x)
-                x = new + (prev - new) * (1 - lod_remainder)
-                result = self.to_rgb_last_mix[res](x)
+            if lod_counter == 1:
+                if lod_remainder > 0:
+                    rgb_image = self.to_rgb[res - 1](x)
+                    prev = self.upscale(rgb_image)
+                    x = self.blocks[res]([x, latents])
+                    new = self.to_rgb[res](x)
+                    return new + (prev - new) * (1 - lod_remainder)
+                else:
+                    x = self.blocks[res]([x, latents])
+                    return self.to_rgb[res](x)
             else:
                 x = self.blocks[res]([x, latents])
-                result = self.to_rgb_last[res](x)
             lod_counter -= 1
-        return result
+
