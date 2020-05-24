@@ -1,17 +1,15 @@
 import matplotlib.pyplot as plt
 import numpy as np
+import os
 import config
 import tensorflow as tf
 
 
-def generate_and_save_images(generator_model, epoch, lod):
+def generate_and_save_images(generator_model, num_images, lod, iteration):
     images = generator_model([config.seed, lod])
     res = int(np.sqrt(config.num_examples_to_generate))
     resolution = int(2 ** (np.ceil(lod) + 2))
-    figure_title = 'LoD: {:03d}, Iteration: {}, Resolution: {}x{}'.format(lod,
-                                                                      epoch * config.epoch_iterations * config.minibatch_repeat,
-                                                                      resolution,
-                                                                      resolution)
+    figure_title = 'LoD: {:.3f}  |  num_images: {}  |  resolution: {}x{}'.format(lod, num_images, resolution, resolution)
     fig, axs = plt.subplots(res, res, constrained_layout=True)
     counter = 0
     for i in range(res):
@@ -20,5 +18,8 @@ def generate_and_save_images(generator_model, epoch, lod):
             axs[i][j].axis('off')
             counter += 1
     fig.suptitle(figure_title)
-    plt.savefig(config.result_folder + '/image_at_iteration_{:04d}.png'.format(epoch), dpi=300)
+    image_folder = config.result_folder + '/images'
+    if not os.path.exists(image_folder):
+        os.makedirs(image_folder)
+    plt.savefig(image_folder + '/image_at_iteration_{:04d}.png'.format(iteration), dpi=300)
     plt.show()

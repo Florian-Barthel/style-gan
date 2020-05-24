@@ -132,16 +132,18 @@ class FirstGenBlock(Layer):
         self.epilogue_1 = LayerEpilogue(layer_index=0, type=type, use_wscale=use_wscale)
         self.conv = CustomConv2d(filters=calc_num_filters(1, fmap_base), kernel=3, gain=gain, use_wscale=use_wscale)
         self.epilogue_2 = LayerEpilogue(layer_index=1, type=type, use_wscale=use_wscale)
-        self.constant = None
-
-    def build(self, input_shape):
         self.constant = tf.Variable(tf.ones([1, 4, 4, calc_num_filters(1, self.fmap_base)]),
                                     trainable=True,
                                     dtype=self.type)
-        self.constant = tf.tile(self.constant, [input_shape[0], 1, 1, 1])
-        super(FirstGenBlock, self).build(input_shape)
+
+    # def build(self, input_shape):
+    #     super(FirstGenBlock, self).build(input_shape)
 
     def call(self, latents, **kwargs):
+        # print(latents.shape[0])
+        with tf.init_scope():
+            self.constant = tf.expand_dims(self.constant[0, :, :, :], axis=0)
+            self.constant = tf.tile(self.constant, [latents.shape[0], 1, 1, 1])
         x = self.epilogue_1([self.constant, latents])
         x = self.conv(x)
         return self.epilogue_2([x, latents])

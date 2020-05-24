@@ -3,21 +3,20 @@ import numpy as np
 import config
 
 
-def get_ffhq(res):
+def get_ffhq(res, batch_size):
     return tf.data.Dataset.list_files('E:/ffhq_' + str(res) + '/*.png').map(
         get_image, num_parallel_calls=tf.data.experimental.AUTOTUNE).batch(
-        config.batch_size).prefetch(tf.data.experimental.AUTOTUNE).repeat()
+        batch_size).prefetch(tf.data.experimental.AUTOTUNE).repeat()
 
 
-def get_mnist():
+def get_mnist(batch_size):
     (train_images, _), (_, _) = tf.keras.datasets.mnist.load_data()
 
     train_images = train_images.reshape(train_images.shape[0], 28, 28, 1).astype('uint8')
     train_images = (train_images - 127.5) / 127.5
 
     return tf.data.Dataset.from_tensor_slices(
-        train_images).batch(
-        config.batch_size).repeat().prefetch(tf.data.experimental.AUTOTUNE)
+        train_images).batch(batch_size).repeat().prefetch(tf.data.experimental.AUTOTUNE)
 
 
 @tf.function

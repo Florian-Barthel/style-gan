@@ -47,13 +47,13 @@ var_list_index = 0
 @tf.function
 def train_generator(latents, lod):
     global var_list_index
+    gen_vars = gen_var_list[var_list_index]
     with tf.GradientTape() as gen_tape:
         gen_loss = loss.g_logistic_nonsaturating(generator_model,
                                                  discriminator_model,
                                                  latents=latents,
                                                  lod=lod)
 
-    gen_vars = gen_var_list[var_list_index]
     gradients_of_generator = gen_tape.gradient(gen_loss, gen_vars)
     generator_optimizer.apply_gradients(zip(gradients_of_generator, gen_vars))
     return gen_loss
@@ -76,25 +76,23 @@ def train_discriminator(latents, images, lod):
 
 
 def init():
-    image_dataset = iter(dataset.get_ffhq(256))
-    tf.config.experimental_run_functions_eagerly(False)
+    tf.config.experimental_run_functions_eagerly(True)
     lod = 0.0
     while lod <= config.max_lod:
         lod_res = int(2 ** (np.ceil(lod) + 2))
-        resized_images = image_utils.resize(next(image_dataset), lod)
+        batch_size = config.minibatch_dict[lod_res]
+        image_dataset = iter(dataset.get_ffhq(lod_res, batch_size))
         with tf.GradientTape() as gen_tape, tf.GradientTape() as disc_tape:
-            latent = tf.random.normal([config.batch_size, config.latent_size, 1], mean=0.0, stddev=1.0,
-                                      dtype=tf.dtypes.float32)
+            latent = tf.random.normal([batch_size, config.latent_size, 1], dtype=tf.float32)
             gen_loss = loss.g_logistic_nonsaturating(generator_model,
                                                      discriminator_model,
                                                      latents=latent,
                                                      lod=np.float32(lod))
-            latent = tf.random.normal([config.batch_size, config.latent_size, 1], mean=0.0, stddev=1.0,
-                                      dtype=tf.dtypes.float32)
+            latent = tf.random.normal([batch_size, config.latent_size, 1], dtype=tf.float32)
             disc_loss = loss.d_logistic_simplegp(generator_model,
                                                  discriminator_model,
                                                  lod=np.float32(lod),
-                                                 images=resized_images,
+                                                 images=next(image_dataset),
                                                  latents=latent)
 
         gen_vars = generator_model.trainable_variables
@@ -113,31 +111,32 @@ def init():
 
 
 def train_loop():
-    image_dataset = iter(dataset.get_ffhq(4))
     lod = 0.0
     gen_loss = 0
     disc_loss = 0
+    num_images = 0
     increase_lod = False
+    batch_size = config.minibatch_dict[4]
+    image_dataset = iter(dataset.get_ffhq(4, batch_size))
     global var_list_index
-    for epoch in range(1, config.epochs):
+    for iteration in range(1, config.epochs):
         progress_bar = tqdm(range(config.epoch_iterations))
-        progress_bar.set_description('Iteration: {}, LoD: {}'.format(epoch * config.epoch_iterations * config.minibatch_repeat, lod))
+        progress_bar.set_description('Iteration: {}, LoD: {}'.format(iteration * config.epoch_iterations * config.minibatch_repeat, lod))
         for _ in progress_bar:
             image_batch = image_utils.fade_lod(next(image_dataset), lod)
             for _ in range(config.minibatch_repeat):
-                latent = tf.random.normal([config.batch_size, config.latent_size, 1], mean=0.0, stddev=1.0,
-                                          dtype=tf.dtypes.float32)
+                latent = tf.random.normal([batch_size, config.latent_size, 1], dtype=tf.float32)
                 disc_loss = train_discriminator(latents=latent, images=image_batch, lod=np.float32(lod))
-                latent = tf.random.normal([config.batch_size, config.latent_size, 1], mean=0.0, stddev=1.0,
-                                          dtype=tf.dtypes.float32)
+                latent = tf.random.normal([batch_size, config.latent_size, 1], dtype=tf.float32)
                 gen_loss = train_generator(latents=latent, lod=np.float32(lod))
+                num_images += batch_size
 
-        save_images.generate_and_save_images(generator_model, epoch, lod)
+        save_images.generate_and_save_images(generator_model, num_images, lod, iteration)
         with summary_writer.as_default():
-            tf.summary.scalar('gen_loss', gen_loss, step=epoch)
-            tf.summary.scalar('disc_loss', disc_loss, step=epoch)
+            tf.summary.scalar('gen_loss', gen_loss, step=iteration)
+            tf.summary.scalar('disc_loss', disc_loss, step=iteration)
 
-        if epoch % config.iterations_per_lod == 0:
+        if iteration % config.iterations_per_lod == 0:
             if config.reset_optimizer and not increase_lod:
                 print('Reset Optimizer')
                 for var in generator_optimizer.variables():
@@ -149,9 +148,11 @@ def train_loop():
 
         if increase_lod and lod < config.max_lod:
             lod = np.around(lod + config.lod_increase, decimals=config.lod_decimals)
-            if epoch % config.iterations_per_lod == 0:
+            if iteration % config.iterations_per_lod == 0:
                 print('Change Dataset')
-                image_dataset = iter(dataset.get_ffhq(int(2 ** (np.ceil(lod) + 2))))
+                res = int(2 ** (np.ceil(lod) + 2))
+                batch_size = config.minibatch_dict[res]
+                image_dataset = iter(dataset.get_ffhq(res=res, batch_size=batch_size))
 
 
 init()
