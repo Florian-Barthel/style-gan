@@ -61,5 +61,5 @@ class Generator(Model):
                     return self.to_rgb[res](x)
             else:
                 x = self.blocks[res]([x, latents])
-            lod_counter -= 1
+                lod_counter -= 1
 

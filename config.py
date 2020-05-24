@@ -25,6 +25,7 @@ num_examples_to_generate = 16
 # design options
 reset_optimizer = True
 flip_images = True
+use_wscale = True
 
 # Folders
 log_dir = "logs/" + datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")

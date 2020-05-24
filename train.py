@@ -29,9 +29,11 @@ generator_model = generator.Generator(num_mapping_layers=config.num_mapping_laye
                                       mapping_fmaps=config.mapping_fmaps,
                                       resolution=config.resolution,
                                       fmap_base=config.fmap_base,
-                                      num_channels=config.num_channels)
+                                      num_channels=config.num_channels,
+                                      use_wscale=config.use_wscale)
 discriminator_model = discriminator.Discriminator(resolution=config.resolution,
-                                                  fmap_base=config.fmap_base)
+                                                  fmap_base=config.fmap_base,
+                                                  use_wscale=config.use_wscale)
 
 # Initialize Optimizer
 generator_optimizer = tf.keras.optimizers.Adam(beta_1=0.0, beta_2=0.99, epsilon=1e-8)

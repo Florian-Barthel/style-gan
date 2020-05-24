@@ -8,7 +8,7 @@ def generate_and_save_images(generator_model, epoch, lod):
     images = generator_model([config.seed, lod])
     res = int(np.sqrt(config.num_examples_to_generate))
     resolution = int(2 ** (np.ceil(lod) + 2))
-    figure_title = 'LoD: {}, Iteration: {}, Resolution: {}x{}'.format(lod,
+    figure_title = 'LoD: {:03d}, Iteration: {}, Resolution: {}x{}'.format(lod,
                                                                       epoch * config.epoch_iterations * config.minibatch_repeat,
                                                                       resolution,
                                                                       resolution)
