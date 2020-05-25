@@ -17,6 +17,7 @@ class Generator(Model):
                  use_wscale=True):
 
         super(Generator, self).__init__()
+        # self.latest_input_shape = None
 
         # Config vars
         self.resolution_log2 = int(np.log2(resolution))
@@ -36,6 +37,7 @@ class Generator(Model):
         self.upscale = layers.upscale(2)
 
     def call(self, inputs, trainable=True, mask=None):
+        # self.latest_input_shape = [tf.shape(inputs[0]), tf.shape(inputs[1])]
         latents_input = inputs[0]
         lod_input = inputs[1]
         latents = self.pixel_norm(latents_input)
@@ -63,3 +65,6 @@ class Generator(Model):
                 x = self.blocks[res]([x, latents])
                 lod_counter -= 1
 
+    # def save_model(self, path):
+    #     self._set_inputs([tf.random.normal(self.latest_input_shape[0]), tf.random.normal(self.latest_input_shape[1])])
+    #     self.save(filepath=path)

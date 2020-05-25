@@ -10,7 +10,7 @@ def generate_and_save_images(generator_model, num_images, lod, iteration):
     res = int(np.sqrt(config.num_examples_to_generate))
     resolution = int(2 ** (np.ceil(lod) + 2))
     figure_title = 'LoD: {:.3f}  |  num_images: {}  |  resolution: {}x{}'.format(lod, num_images, resolution, resolution)
-    fig, axs = plt.subplots(res, res, constrained_layout=True)
+    fig, axs = plt.subplots(res, res)
     counter = 0
     for i in range(res):
         for j in range(res):
@@ -18,7 +18,7 @@ def generate_and_save_images(generator_model, num_images, lod, iteration):
             axs[i][j].axis('off')
             counter += 1
     fig.suptitle(figure_title)
-    image_folder = config.result_folder + '/images'
+    image_folder = config.result_folder + '/images/'
     if not os.path.exists(image_folder):
         os.makedirs(image_folder)
     plt.savefig(image_folder + '/image_at_iteration_{:04d}.png'.format(iteration), dpi=300)
