@@ -6,7 +6,7 @@ import tensorflow as tf
 
 
 def generate_and_save_images(generator_model, num_images, lod, iteration):
-    images = generator_model([config.seed, lod])
+    images = generator_model([config.seed, lod], trainable=False)
     res = int(np.sqrt(config.num_examples_to_generate))
     resolution = int(2 ** (np.ceil(lod) + 2))
     figure_title = 'LoD: {:.3f}  |  num_images: {}  |  resolution: {}x{}'.format(lod, num_images, resolution, resolution)
@@ -22,4 +22,3 @@ def generate_and_save_images(generator_model, num_images, lod, iteration):
     if not os.path.exists(image_folder):
         os.makedirs(image_folder)
     plt.savefig(image_folder + '/image_at_iteration_{:04d}.png'.format(iteration), dpi=300)
-    plt.show()

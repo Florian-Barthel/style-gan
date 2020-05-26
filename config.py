@@ -5,6 +5,7 @@ import tensorflow as tf
 # batch_size = 16
 resolution = 128
 latent_size = 512
+dlatent_size = 512
 num_mapping_layers = 8
 mapping_fmaps = 512
 fmap_base = 4096
@@ -28,9 +29,10 @@ num_examples_to_generate = 16
 reset_optimizer = True
 flip_images = True
 use_wscale = True
+use_truncation = True
 
 # Folders
 log_dir = "./logs/" + datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 result_folder = './runs/' + datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
-seed = tf.random.normal([num_examples_to_generate, latent_size, 1], mean=0.0, stddev=1.0, dtype=tf.dtypes.float32)
+seed = tf.random.normal([num_examples_to_generate, latent_size], mean=0.0, stddev=1.0, dtype=tf.dtypes.float32)

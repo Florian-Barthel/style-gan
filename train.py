@@ -91,12 +91,12 @@ def init():
         batch_size = config.minibatch_dict[lod_res]
         image_dataset = iter(dataset.get_ffhq(lod_res, batch_size))
         with tf.GradientTape() as gen_tape, tf.GradientTape() as disc_tape:
-            latent = tf.random.normal([batch_size, config.latent_size, 1], dtype=tf.float32)
+            latent = tf.random.normal([batch_size, config.latent_size], dtype=tf.float32)
             gen_loss = loss.g_logistic_nonsaturating(generator_model,
                                                      discriminator_model,
                                                      latents=latent,
                                                      lod=np.float32(lod))
-            latent = tf.random.normal([batch_size, config.latent_size, 1], dtype=tf.float32)
+            latent = tf.random.normal([batch_size, config.latent_size], dtype=tf.float32)
             disc_loss = loss.d_logistic_simplegp(generator_model,
                                                  discriminator_model,
                                                  lod=np.float32(lod),
@@ -123,8 +123,8 @@ def train_loop():
     gen_loss = 0
     disc_loss = 0
     num_images = 0
-    increase_lod = False
     current_iterations = 0
+    increase_lod = False
     batch_size = config.minibatch_dict[4]
     image_dataset = iter(dataset.get_ffhq(4, batch_size))
     image_dataset_eval = iter(dataset.get_ffhq(config.resolution, batch_size))
@@ -134,13 +134,12 @@ def train_loop():
         progress_bar.set_description(
             'Iteration: {}, LoD: {}'.format(iteration * config.epoch_iterations * config.minibatch_repeat,
                                             lod.get_value()))
-
         for _ in progress_bar:
             image_batch = image_utils.fade_lod(next(image_dataset), lod.get_value())
             for _ in range(config.minibatch_repeat):
-                latent = tf.random.normal([batch_size, config.latent_size, 1], dtype=tf.float32)
+                latent = tf.random.normal([batch_size, config.latent_size], dtype=tf.float32)
                 disc_loss = train_discriminator(latents=latent, images=image_batch, lod=lod.get_value())
-                latent = tf.random.normal([batch_size, config.latent_size, 1], dtype=tf.float32)
+                latent = tf.random.normal([batch_size, config.latent_size], dtype=tf.float32)
                 gen_loss = train_generator(latents=latent, lod=lod.get_value())
                 num_images += batch_size
 
@@ -153,7 +152,8 @@ def train_loop():
 
         if iteration % config.evaluation_interval == 0:
             fid_score = metrics.FID(generator_model, image_dataset_eval, lod.get_value(), batch_size)
-            tf.summary.scalar('FID', fid_score, step=iteration)
+            with summary_writer.as_default():
+                tf.summary.scalar('FID', fid_score, step=iteration)
             print('FID:', fid_score)
             # persistence.save_pkl(generator_model, 'gen', iteration)
             # generator_model.save_weights(models_folder + '/gen_model_at_iteration{:04d}'.format(iteration))
