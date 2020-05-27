@@ -21,22 +21,19 @@ class Generator(Model):
                  truncation_cutoff=8):
 
         super(Generator, self).__init__()
-        # self.latest_input_shape = None
 
         # Config vars
         self.resolution_log2 = int(np.log2(resolution))
 
         # Validation vars
-        self.dlatent_avg_beta = dlatent_avg_beta
-        self.dlatent_avg = tf.Variable(tf.zeros([config.dlatent_size]), trainable=False)
-        self.truncation_psi = truncation_psi
         self.num_style_layers = (self.resolution_log2 - 1) * 2
-        self.truncation_cutoff = truncation_cutoff
 
         # Layers
         self.pixel_norm = layers.PixelNorm()
         self.mapping_layers = layers.Mapping(num_mapping_layers, mapping_fmaps, num_style_layers=self.num_style_layers,
                                              lr_mul=lr_mul, type=type, use_wscale=use_wscale)
+        self.get_dlatent_avg = layers.GetDlatentAvg(dlatent_avg_beta)
+        self.apply_truncation = layers.ApplyTruncation(self.num_style_layers, truncation_cutoff, truncation_psi)
         self.first_gen_block = layers.FirstGenBlock(fmap_base=fmap_base, type=type, gain=gain, use_wscale=use_wscale)
         self.blocks = dict()
         self.to_rgb = dict()
@@ -52,18 +49,14 @@ class Generator(Model):
     def call(self, inputs, trainable=True, mask=None):
         latents_input = inputs[0]
         lod_input = inputs[1]
+        is_validation = inputs[2]
         latents = self.pixel_norm(latents_input)
         dlatents = self.mapping_layers(latents)
 
-        if trainable:
-            batch_avg = tf.reduce_mean(dlatents[:, 0], axis=0)
-            self.dlatent_avg = batch_avg + (self.dlatent_avg - batch_avg) * self.dlatent_avg_beta
+        dlatents, dlatent_avg = self.get_dlatent_avg([dlatents, is_validation])
 
-        if not trainable and config.use_truncation:
-            layer_idx = np.arange(self.num_mapping_layers)[np.newaxis, :, np.newaxis]
-            ones = np.ones(layer_idx.shape, dtype=np.float32)
-            coefs = tf.where(layer_idx < self.truncation_cutoff, self.truncation_psi * ones, ones)
-            dlatents = self.dlatent_avg + (dlatents - self.dlatent_avg) * coefs
+        if is_validation == 1.0 and config.use_truncation:
+            dlatents = self.apply_truncation([dlatents, dlatent_avg])
 
         x = self.first_gen_block(dlatents)
         if lod_input == 0.0:
@@ -86,7 +79,3 @@ class Generator(Model):
             else:
                 x = self.blocks[res]([x, latents])
                 lod_counter -= 1
-
-    # def save_model(self, path):
-    #     self._set_inputs([tf.random.normal(self.latest_input_shape[0]), tf.random.normal(self.latest_input_shape[1])])
-    #     self.save(filepath=path)

@@ -12,18 +12,15 @@ fmap_base = 4096
 fmap_max = 512
 num_channels = 3
 
-iterations_per_lod = 40
-iterations_per_lod_dict = {4: 40, 8: 40, 16: 40, 32: 80, 64: 160, 128: 160}
-minibatch_dict = {4: 16, 8: 16, 16: 16, 32: 8, 64: 4, 128: 4}
+iterations_per_lod_dict = {4: 10, 8: 20, 16: 40, 32: 80, 64: 160, 128: 160}
+minibatch_dict =          {4: 64, 8: 32, 16: 16, 32:  8, 64:   4, 128:   4}
 minibatch_repeat = 4
 epoch_iterations = 250
-lod_increase = 1 / iterations_per_lod
-max_lod = int(np.log2(resolution)) - 2
 
 epochs = 10000
 evaluation_interval = 10
 fid_num_images = 10000
-num_examples_to_generate = 16
+num_examples_to_generate = 4
 
 # design options
 reset_optimizer = True

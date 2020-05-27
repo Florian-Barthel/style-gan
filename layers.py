@@ -109,20 +109,34 @@ class Mapping(Layer):
         x = tf.tile(tf.expand_dims(x, axis=1), [1, self.num_style_layers, 1])
         return x
 
-    def compute_output_shape(self, input_shape):
-        return [input_shape[0], self.num_style_layers, self.num_filters]
+
+class GetDlatentAvg(Layer):
+    def __init__(self, dlatent_avg_beta):
+        super(GetDlatentAvg, self).__init__()
+        self.dlatent_avg = tf.Variable(tf.zeros([config.dlatent_size]), trainable=False)
+        self.dlatent_avg_beta = dlatent_avg_beta
+
+    def call(self, inputs, **kwargs):
+        x = inputs[0]
+        is_validation = inputs[1]
+        if is_validation == 0.0:
+            batch_avg = tf.reduce_mean(x[:, 0], axis=0)
+            self.dlatent_avg.assign(batch_avg + (self.dlatent_avg - batch_avg) * self.dlatent_avg_beta)
+        return [x, self.dlatent_avg]
 
 
-# class GetDlatentAvg(Layer):
-#     def __init__(self, dlatent_avg_beta):
-#         super(GetDlatentAvg, self).__init__()
-#         self.dlatent_avg = tf.Variable(tf.zeros([config.dlatent_size]), trainable=False)
-#         self.dlatent_avg_beta = dlatent_avg_beta
-#
-#     def call(self, x, **kwargs):
-#         batch_avg = tf.reduce_mean(x[:, 0], axis=0)
-#         return batch_avg + (self.dlatent_avg - batch_avg) * self.dlatent_avg_beta
-#
+class ApplyTruncation(Layer):
+    def __init__(self, num_style_layers, truncation_cutoff, truncation_psi):
+        super(ApplyTruncation, self).__init__()
+        layer_idx = np.arange(num_style_layers)[np.newaxis, :, np.newaxis]
+        ones = np.ones(layer_idx.shape, dtype=np.float32)
+        self.coefs = tf.where(layer_idx < truncation_cutoff, truncation_psi * ones, ones)
+
+    def call(self, inputs, **kwargs):
+        dlatent = inputs[0]
+        dlatent_avg = inputs[1]
+        return dlatent_avg + (dlatent - dlatent_avg) * self.coefs
+
 
 class ApplyBias(Layer):
     def __init__(self, lr_mul=1, type=tf.float32):
@@ -153,15 +167,8 @@ class FirstGenBlock(Layer):
                                     trainable=True,
                                     dtype=self.type)
 
-    # def build(self, input_shape):
-    #     self.constant = tf.tile(self.constant, [input_shape[0], 1, 1, 1])
-    # #     super(FirstGenBlock, self).build(input_shape)
-
     def call(self, latents, **kwargs):
-        with tf.init_scope():
-            self.constant = tf.expand_dims(self.constant[0, :, :, :], axis=0)
-            self.constant = tf.tile(self.constant, [tf.shape(latents)[0], 1, 1, 1])
-        x = self.epilogue_1([self.constant, latents])
+        x = self.epilogue_1([tf.tile(self.constant, [tf.shape(latents)[0], 1, 1, 1]), latents])
         x = self.conv(x)
         return self.epilogue_2([x, latents])
 

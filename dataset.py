@@ -5,8 +5,8 @@ import config
 
 def get_ffhq(res, batch_size):
     return tf.data.Dataset.list_files('E:/ffhq_' + str(res) + '/*.png').map(
-        get_image, num_parallel_calls=tf.data.experimental.AUTOTUNE).batch(
-        batch_size).prefetch(tf.data.experimental.AUTOTUNE).repeat()
+        get_image, num_parallel_calls=tf.data.experimental.AUTOTUNE).repeat().batch(
+        batch_size).prefetch(tf.data.experimental.AUTOTUNE)
 
 
 def get_mnist(batch_size):

@@ -11,7 +11,6 @@ import loss
 import image_utils
 import dataset
 import save_images
-import persistence
 import metrics
 from lod import LoD
 
@@ -86,7 +85,7 @@ def train_discriminator(latents, images, lod):
 def init():
     tf.config.experimental_run_functions_eagerly(True)
     lod = 0.0
-    while lod <= config.max_lod:
+    while lod <= int(np.log2(config.resolution)) - 2:
         lod_res = int(2 ** (np.ceil(lod) + 2))
         batch_size = config.minibatch_dict[lod_res]
         image_dataset = iter(dataset.get_ffhq(lod_res, batch_size))
@@ -116,6 +115,10 @@ def init():
         print('Initialize BLock {}x{}'.format(lod_res, lod_res))
         lod += 0.5
     tf.config.experimental_run_functions_eagerly(False)
+    for var in generator_optimizer.variables():
+        var.assign(tf.zeros_like(var))
+    for var in discriminator_optimizer.variables():
+        var.assign(tf.zeros_like(var))
 
 
 def train_loop():
@@ -127,7 +130,6 @@ def train_loop():
     increase_lod = False
     batch_size = config.minibatch_dict[4]
     image_dataset = iter(dataset.get_ffhq(4, batch_size))
-    image_dataset_eval = iter(dataset.get_ffhq(config.resolution, batch_size))
     global var_list_index
     for iteration in range(1, config.epochs):
         progress_bar = tqdm(range(config.epoch_iterations))
@@ -151,6 +153,7 @@ def train_loop():
             tf.summary.scalar('lod', lod.get_value(), step=num_images)
 
         if iteration % config.evaluation_interval == 0:
+            image_dataset_eval = iter(dataset.get_ffhq(config.resolution, batch_size))
             fid_score = metrics.FID(generator_model, image_dataset_eval, lod.get_value(), batch_size)
             with summary_writer.as_default():
                 tf.summary.scalar('FID', fid_score, step=iteration)
@@ -162,27 +165,28 @@ def train_loop():
             # generator_model.save_model(models_folder + '/gen_model_at_iteration{:04d}'.format(iteration))
             # tf.keras.models.save_model(discriminator_model, models_folder + '/disc_model_at_iteration{:04d}'.format(iteration))
 
-        if current_iterations >= config.iterations_per_lod_dict[lod.get_resolution()]:
-            if not increase_lod:
-                lod.increase_resolution()
-            increase_lod = not increase_lod
-            var_list_index += 1
-            current_iterations = 0
-            lod.round()
+        if not lod.reached_max():
+            if current_iterations >= config.iterations_per_lod_dict[lod.get_resolution()]:
+                if not increase_lod:
+                    lod.increase_resolution()
+                increase_lod = not increase_lod
+                var_list_index += 1
+                current_iterations = 0
+                lod.round()
 
-        if increase_lod:
-            lod.increase_value(steps=config.iterations_per_lod_dict[lod.get_resolution()])
-            if current_iterations == 0:
-                res = lod.get_resolution()
-                batch_size = config.minibatch_dict[res]
-                print('Change Dataset')
-                image_dataset = iter(dataset.get_ffhq(res=res, batch_size=batch_size))
-                if config.reset_optimizer:
-                    print('Reset Optimizer')
-                    for var in generator_optimizer.variables():
-                        var.assign(tf.zeros_like(var))
-                    for var in discriminator_optimizer.variables():
-                        var.assign(tf.zeros_like(var))
+            if increase_lod:
+                lod.increase_value(steps=config.iterations_per_lod_dict[lod.get_resolution()])
+                if current_iterations == 0:
+                    res = lod.get_resolution()
+                    batch_size = config.minibatch_dict[res]
+                    print('Change Dataset')
+                    image_dataset = iter(dataset.get_ffhq(res=res, batch_size=batch_size))
+                    if config.reset_optimizer:
+                        print('Reset Optimizer')
+                        for var in generator_optimizer.variables():
+                            var.assign(tf.zeros_like(var))
+                        for var in discriminator_optimizer.variables():
+                            var.assign(tf.zeros_like(var))
 
 
 init()
