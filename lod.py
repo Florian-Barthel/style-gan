@@ -12,6 +12,9 @@ class LoD:
     def get_value(self):
         return np.round(np.float32(self.value), decimals=self.decimals)
 
+    def reached_max(self):
+        return self.value >= self.max_value
+
     def increase_value(self, steps):
         increment = 1 / steps
         increment = increment * (10 ** self.decimals)

@@ -87,15 +87,17 @@ class CustomConv2d(Layer):
 
 
 class Mapping(Layer):
-    def __init__(self, num_layers, num_filters, lr_mul, type, use_wscale):
+    def __init__(self, num_layers, num_filters, num_style_layers, lr_mul, type, use_wscale):
         super(Mapping, self).__init__()
         self.num_layers = num_layers
+        self.num_style_layers = num_style_layers
+        self.num_filters = num_filters
         self.layers = []
         self.bias = []
         self.activation = []
 
         for _ in range(self.num_layers):
-            self.layers.append(CustomDense(num_filters, lr_mul=lr_mul, use_wscale=use_wscale))
+            self.layers.append(CustomDense(self.num_filters, lr_mul=lr_mul, use_wscale=use_wscale))
             self.bias.append(ApplyBias(lr_mul, type))
             self.activation.append(activation())
 
@@ -104,7 +106,36 @@ class Mapping(Layer):
             x = self.layers[i](x)
             x = self.bias[i](x)
             x = self.activation[i](x)
+        x = tf.tile(tf.expand_dims(x, axis=1), [1, self.num_style_layers, 1])
         return x
+
+
+class GetDlatentAvg(Layer):
+    def __init__(self, dlatent_avg_beta):
+        super(GetDlatentAvg, self).__init__()
+        self.dlatent_avg = tf.Variable(tf.zeros([config.dlatent_size]), trainable=False)
+        self.dlatent_avg_beta = dlatent_avg_beta
+
+    def call(self, inputs, **kwargs):
+        x = inputs[0]
+        is_validation = inputs[1]
+        if is_validation == 0.0:
+            batch_avg = tf.reduce_mean(x[:, 0], axis=0)
+            self.dlatent_avg.assign(batch_avg + (self.dlatent_avg - batch_avg) * self.dlatent_avg_beta)
+        return [x, self.dlatent_avg]
+
+
+class ApplyTruncation(Layer):
+    def __init__(self, num_style_layers, truncation_cutoff, truncation_psi):
+        super(ApplyTruncation, self).__init__()
+        layer_idx = np.arange(num_style_layers)[np.newaxis, :, np.newaxis]
+        ones = np.ones(layer_idx.shape, dtype=np.float32)
+        self.coefs = tf.where(layer_idx < truncation_cutoff, truncation_psi * ones, ones)
+
+    def call(self, inputs, **kwargs):
+        dlatent = inputs[0]
+        dlatent_avg = inputs[1]
+        return dlatent_avg + (dlatent - dlatent_avg) * self.coefs
 
 
 class ApplyBias(Layer):
@@ -136,15 +167,8 @@ class FirstGenBlock(Layer):
                                     trainable=True,
                                     dtype=self.type)
 
-    # def build(self, input_shape):
-    #     super(FirstGenBlock, self).build(input_shape)
-
     def call(self, latents, **kwargs):
-        # print(latents.shape[0])
-        with tf.init_scope():
-            self.constant = tf.expand_dims(self.constant[0, :, :, :], axis=0)
-            self.constant = tf.tile(self.constant, [latents.shape[0], 1, 1, 1])
-        x = self.epilogue_1([self.constant, latents])
+        x = self.epilogue_1([tf.tile(self.constant, [tf.shape(latents)[0], 1, 1, 1]), latents])
         x = self.conv(x)
         return self.epilogue_2([x, latents])
 

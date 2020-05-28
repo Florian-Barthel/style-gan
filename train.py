@@ -11,7 +11,6 @@ import loss
 import image_utils
 import dataset
 import save_images
-import persistence
 import metrics
 from lod import LoD
 
@@ -86,17 +85,18 @@ def train_discriminator(latents, images, lod):
 def init():
     tf.config.experimental_run_functions_eagerly(True)
     lod = 0.0
-    while lod <= config.max_lod:
+    while lod <= int(np.log2(config.resolution)) - 2:
         lod_res = int(2 ** (np.ceil(lod) + 2))
+        print('Initialize BLock {}x{}'.format(lod_res, lod_res))
         batch_size = config.minibatch_dict[lod_res]
-        image_dataset = iter(dataset.get_ffhq(lod_res, batch_size))
+        image_dataset = iter(dataset.get_ffhq_tfrecord(lod_res, batch_size))
         with tf.GradientTape() as gen_tape, tf.GradientTape() as disc_tape:
-            latent = tf.random.normal([batch_size, config.latent_size, 1], dtype=tf.float32)
+            latent = tf.random.normal([batch_size, config.latent_size], dtype=tf.float32)
             gen_loss = loss.g_logistic_nonsaturating(generator_model,
                                                      discriminator_model,
                                                      latents=latent,
                                                      lod=np.float32(lod))
-            latent = tf.random.normal([batch_size, config.latent_size, 1], dtype=tf.float32)
+            latent = tf.random.normal([batch_size, config.latent_size], dtype=tf.float32)
             disc_loss = loss.d_logistic_simplegp(generator_model,
                                                  discriminator_model,
                                                  lod=np.float32(lod),
@@ -113,9 +113,12 @@ def init():
 
         generator_optimizer.apply_gradients(zip(gradients_of_generator, gen_vars))
         discriminator_optimizer.apply_gradients(zip(gradients_of_discriminator, disc_vars))
-        print('Initialize BLock {}x{}'.format(lod_res, lod_res))
         lod += 0.5
     tf.config.experimental_run_functions_eagerly(False)
+    for var in generator_optimizer.variables():
+        var.assign(tf.zeros_like(var))
+    for var in discriminator_optimizer.variables():
+        var.assign(tf.zeros_like(var))
 
 
 def train_loop():
@@ -123,24 +126,22 @@ def train_loop():
     gen_loss = 0
     disc_loss = 0
     num_images = 0
-    increase_lod = False
     current_iterations = 0
+    increase_lod = False
     batch_size = config.minibatch_dict[4]
-    image_dataset = iter(dataset.get_ffhq(4, batch_size))
-    image_dataset_eval = iter(dataset.get_ffhq(config.resolution, batch_size))
+    image_dataset = iter(dataset.get_ffhq_tfrecord(4, batch_size))
     global var_list_index
     for iteration in range(1, config.epochs):
         progress_bar = tqdm(range(config.epoch_iterations))
         progress_bar.set_description(
             'Iteration: {}, LoD: {}'.format(iteration * config.epoch_iterations * config.minibatch_repeat,
                                             lod.get_value()))
-
         for _ in progress_bar:
             image_batch = image_utils.fade_lod(next(image_dataset), lod.get_value())
             for _ in range(config.minibatch_repeat):
-                latent = tf.random.normal([batch_size, config.latent_size, 1], dtype=tf.float32)
+                latent = tf.random.normal([batch_size, config.latent_size], dtype=tf.float32)
                 disc_loss = train_discriminator(latents=latent, images=image_batch, lod=lod.get_value())
-                latent = tf.random.normal([batch_size, config.latent_size, 1], dtype=tf.float32)
+                latent = tf.random.normal([batch_size, config.latent_size], dtype=tf.float32)
                 gen_loss = train_generator(latents=latent, lod=lod.get_value())
                 num_images += batch_size
 
@@ -152,37 +153,34 @@ def train_loop():
             tf.summary.scalar('lod', lod.get_value(), step=num_images)
 
         if iteration % config.evaluation_interval == 0:
+            image_dataset_eval = iter(dataset.get_ffhq_tfrecord(config.resolution, batch_size))
             fid_score = metrics.FID(generator_model, image_dataset_eval, lod.get_value(), batch_size)
-            tf.summary.scalar('FID', fid_score, step=iteration)
+            with summary_writer.as_default():
+                tf.summary.scalar('FID', fid_score, step=iteration)
             print('FID:', fid_score)
-            # persistence.save_pkl(generator_model, 'gen', iteration)
-            # generator_model.save_weights(models_folder + '/gen_model_at_iteration{:04d}'.format(iteration))
-            # with open("models_folder + '/gen_model_at_iteration{:04d}'.format(iteration).json", "w") as json_file:
-            #     json_file.write(model_json)
-            # generator_model.save_model(models_folder + '/gen_model_at_iteration{:04d}'.format(iteration))
-            # tf.keras.models.save_model(discriminator_model, models_folder + '/disc_model_at_iteration{:04d}'.format(iteration))
 
-        if current_iterations >= config.iterations_per_lod_dict[lod.get_resolution()]:
-            if not increase_lod:
-                lod.increase_resolution()
-            increase_lod = not increase_lod
-            var_list_index += 1
-            current_iterations = 0
-            lod.round()
+        if not lod.reached_max():
+            if current_iterations >= config.iterations_per_lod_dict[lod.get_resolution()]:
+                if not increase_lod:
+                    lod.increase_resolution()
+                increase_lod = not increase_lod
+                var_list_index += 1
+                current_iterations = 0
+                lod.round()
 
-        if increase_lod:
-            lod.increase_value(steps=config.iterations_per_lod_dict[lod.get_resolution()])
-            if current_iterations == 0:
-                res = lod.get_resolution()
-                batch_size = config.minibatch_dict[res]
-                print('Change Dataset')
-                image_dataset = iter(dataset.get_ffhq(res=res, batch_size=batch_size))
-                if config.reset_optimizer:
-                    print('Reset Optimizer')
-                    for var in generator_optimizer.variables():
-                        var.assign(tf.zeros_like(var))
-                    for var in discriminator_optimizer.variables():
-                        var.assign(tf.zeros_like(var))
+            if increase_lod:
+                lod.increase_value(steps=config.iterations_per_lod_dict[lod.get_resolution()])
+                if current_iterations == 0:
+                    res = lod.get_resolution()
+                    batch_size = config.minibatch_dict[res]
+                    print('Change Dataset')
+                    image_dataset = iter(dataset.get_ffhq_tfrecord(res=res, batch_size=batch_size))
+                    if config.reset_optimizer:
+                        print('Reset Optimizer')
+                        for var in generator_optimizer.variables():
+                            var.assign(tf.zeros_like(var))
+                        for var in discriminator_optimizer.variables():
+                            var.assign(tf.zeros_like(var))
 
 
 init()
