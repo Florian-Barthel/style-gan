@@ -14,4 +14,4 @@ def create_video(folder, size=(400, 400), duration=200):
              save_all=True, duration=duration, loop=0)
 
 
-create_video('./../runs/2020-05-25_17-47-47/images')
+create_video('./../runs/2020-05-26_22-44-05/images')
