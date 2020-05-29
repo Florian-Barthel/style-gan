@@ -1,15 +1,21 @@
 import matplotlib.pyplot as plt
 import numpy as np
-import os
 import config
 import tensorflow as tf
+import time
+import os
+
+start = time.time()
 
 
 def generate_and_save_images(generator_model, num_images, lod, iteration):
+    hours = int((time.time() - start) / (60 * 60))
     images = generator_model([config.seed, lod, np.float32(1)], trainable=False)
     res = int(np.sqrt(config.num_examples_to_generate))
     resolution = int(2 ** (np.ceil(lod) + 2))
-    figure_title = 'LoD: {:.3f}  |  num_images: {}  |  resolution: {}x{}'.format(lod, num_images, resolution, resolution)
+    figure_title = 'LoD: {:.3f}  |  num_images: {}  |  resolution: {}x{}  | time: {}h'.format(lod, num_images,
+                                                                                              resolution, resolution,
+                                                                                              hours)
     fig, axs = plt.subplots(res, res)
     counter = 0
     for i in range(res):
