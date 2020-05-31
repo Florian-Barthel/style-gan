@@ -10,7 +10,7 @@ def get_ffhq(res, batch_size):
 
 
 def get_ffhq_tfrecord(res, batch_size):
-    dset = tf.data.TFRecordDataset('E:/my_tfRecords/ffhq' + str(res) + '.tfrecords')
+    dset = tf.data.TFRecordDataset('./dataset/ffhq/ffhq' + str(res) + '.tfrecords')
     dset = dset.map(lambda x: parse_tfrecord_tf(x), num_parallel_calls=tf.data.experimental.AUTOTUNE)
     dset = dset.repeat()
     dset = dset.batch(batch_size)

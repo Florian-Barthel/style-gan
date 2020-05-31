@@ -146,13 +146,14 @@ def train_loop():
                 num_images += batch_size
 
         current_iterations += 1
-        save_images.generate_and_save_images(generator_model, num_images, lod.get_value(), iteration)
+        if iteration % config.save_images_interval == 0:
+            save_images.generate_and_save_images(generator_model, num_images, lod.get_value(), iteration)
         with summary_writer.as_default():
             tf.summary.scalar('gen_loss', gen_loss, step=iteration)
             tf.summary.scalar('disc_loss', disc_loss, step=iteration)
             tf.summary.scalar('lod', lod.get_value(), step=num_images)
 
-        if iteration % config.evaluation_interval == 0:
+        if iteration % config.evaluation_interval_dict[lod.get_resolution()] == 0:
             image_dataset_eval = iter(dataset.get_ffhq_tfrecord(config.resolution, batch_size))
             fid_score = metrics.FID(generator_model, image_dataset_eval, lod.get_value(), batch_size)
             with summary_writer.as_default():
@@ -171,10 +172,9 @@ def train_loop():
             if increase_lod:
                 lod.increase_value(steps=config.iterations_per_lod_dict[lod.get_resolution()])
                 if current_iterations == 0:
-                    res = lod.get_resolution()
-                    batch_size = config.minibatch_dict[res]
+                    batch_size = config.minibatch_dict[lod.get_resolution()]
                     print('Change Dataset')
-                    image_dataset = iter(dataset.get_ffhq_tfrecord(res=res, batch_size=batch_size))
+                    image_dataset = iter(dataset.get_ffhq_tfrecord(res=lod.get_resolution(), batch_size=batch_size))
                     if config.reset_optimizer:
                         print('Reset Optimizer')
                         for var in generator_optimizer.variables():
