@@ -11,7 +11,7 @@ import loss
 import image_utils
 import dataset
 import save_images
-import metrics
+from metrics import frechet_inception_distance
 from lod import LoD
 
 # Setup Environment
@@ -155,7 +155,7 @@ def train_loop():
 
         if iteration % config.evaluation_interval_dict[lod.get_resolution()] == 0:
             image_dataset_eval = iter(dataset.get_ffhq_tfrecord(config.resolution, batch_size))
-            fid_score = metrics.FID(generator_model, image_dataset_eval, lod.get_value(), batch_size)
+            fid_score = frechet_inception_distance.FID(generator_model, image_dataset_eval, lod.get_value(), batch_size)
             with summary_writer.as_default():
                 tf.summary.scalar('FID', fid_score, step=iteration)
             print('FID:', fid_score)
