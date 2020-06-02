@@ -8,7 +8,7 @@ latent_size = 512
 dlatent_size = 512
 num_mapping_layers = 8
 mapping_fmaps = 512
-fmap_base = 4096
+fmap_base = 4096 // 2
 fmap_max = 512
 num_channels = 3
 

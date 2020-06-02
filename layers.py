@@ -224,7 +224,7 @@ class DiscBlock(Layer):
 class LastDiscBlock(Layer):
     def __init__(self, fmap_base, gain, use_wscale):
         super(LastDiscBlock, self).__init__()
-        self.stddev = MinibatchStdev()
+        self.stddev = MinibatchStdev(group_size=4, num_new_features=1)
         self.conv1 = CustomConv2d(filters=calc_num_filters(1, fmap_base), kernel=3, gain=gain, use_wscale=use_wscale)
         self.apply_bias1 = ApplyBias()
         self.activation1 = activation()
@@ -321,9 +321,9 @@ class FromRGB(Layer):
 class ApplyNoise(Layer):
     def __init__(self, layer_idx, type=tf.float32):
         super(ApplyNoise, self).__init__()
-        noise_res = layer_idx // 2 + 2
-        self.noise_shape = [1, 2 ** noise_res, 2 ** noise_res, 1]
-        self.noise = tf.Variable(tf.random.normal(self.noise_shape), trainable=False, dtype=type)
+        self.noise_res = layer_idx // 2 + 2
+        # self.noise_shape = [1, 2 ** noise_res, 2 ** noise_res, 1]
+        # self.noise = tf.Variable(tf.random.normal(self.noise_shape), trainable=False, dtype=type)
         self.weight = None
 
     def build(self, input_shape):
@@ -334,7 +334,8 @@ class ApplyNoise(Layer):
         super(ApplyNoise, self).build(input_shape)
 
     def call(self, inputs, **kwargs):
-        return inputs + self.noise * self.weight
+        noise_shape = [tf.shape(inputs)[0], 2 ** self.noise_res, 2 ** self.noise_res, 1]
+        return inputs + tf.random.normal(noise_shape) * self.weight
 
 
 class InstanceNorm(Layer):
@@ -359,25 +360,24 @@ class PixelNorm(Layer):
 
 
 class MinibatchStdev(Layer):
-    def __init__(self, **kwargs):
-        super(MinibatchStdev, self).__init__(**kwargs)
+    def __init__(self, num_new_features, group_size):
+        super(MinibatchStdev, self).__init__()
+        self.group_size = group_size
+        self.num_new_features = num_new_features
 
-    def call(self, inputs, **kwargs):
-        mean = tf.reduce_mean(inputs, axis=0, keepdims=True)
-        squ_diffs = tf.math.square(inputs - mean)
-        mean_sq_diff = tf.reduce_mean(squ_diffs, axis=0, keepdims=True)
-        mean_sq_diff += 1e-8
-        stdev = tf.math.sqrt(mean_sq_diff)
-        mean_pix = tf.reduce_mean(stdev, keepdims=True)
-        shape = tf.shape(inputs)
-        output = tf.tile(mean_pix, (shape[0], shape[1], shape[2], 1))
-        combined = tf.concat([inputs, output], axis=-1)
-        return combined
-
-    def compute_output_shape(self, input_shape):
-        input_shape = list(input_shape)
-        input_shape[-1] += 1
-        return tuple(input_shape)
+    def call(self, x, **kwargs):
+        group_size = tf.minimum(self.group_size, tf.shape(x)[0])
+        s = x.shape #NHWC
+        y = tf.reshape(x, [group_size, -1, s[1], s[2], s[3] // self.num_new_features, self.num_new_features]) #GMHWcn
+        y = tf.cast(y, tf.float32) #GMHWcn
+        y -= tf.reduce_mean(y, axis=0, keepdims=True) #GMHWcn
+        y = tf.reduce_mean(tf.square(y), axis=0) #MHWcn
+        y = tf.sqrt(y + 1e-8) #MHWcn
+        y = tf.reduce_mean(y, axis=[1, 2, 3], keepdims=True) #MHWcn
+        y = tf.reduce_mean(y, axis=3) #MHWn
+        y = tf.cast(y, x.dtype) #MHWn
+        y = tf.tile(y, [group_size, s[1], s[2], 1]) #NHWn
+        return tf.concat([x, y], axis=-1) #NHWC
 
 
 class Blur2d(Layer):

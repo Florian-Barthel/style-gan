@@ -5,10 +5,10 @@ import numpy as np
 
 class Discriminator(tf.keras.models.Model):
     def __init__(self,
-                 resolution=32,
-                 fmap_base=32,
-                 gain=np.sqrt(2),
-                 use_wscale=True):
+                 resolution,
+                 fmap_base,
+                 use_wscale,
+                 gain=np.sqrt(2)):
 
         super(Discriminator, self).__init__()
 
@@ -16,7 +16,6 @@ class Discriminator(tf.keras.models.Model):
         self.resolution_log2 = int(np.log2(resolution))
 
         # Layers
-        self.std_dev = layers.MinibatchStdev()
         self.from_rgb = dict()
         self.blocks = dict()
         for res in range(self.resolution_log2, 2, -1):
