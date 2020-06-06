@@ -1,13 +1,14 @@
 import numpy as np
+import config
 
 
 class LoD:
     def __init__(self, max_resolution, decimals=5):
-        self.value = 0.0
+        self.value = config.initial_lod
         self.max_value = int(np.log2(max_resolution)) - 2
         self.decimals = decimals
         self.max_resolution = max_resolution
-        self.resolution = 4
+        self.resolution = config.initial_res
 
     def get_value(self):
         return np.round(np.float32(self.value), decimals=self.decimals)

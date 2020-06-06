@@ -4,12 +4,14 @@ from scipy.linalg import sqrtm
 from tensorflow.keras.applications.inception_v3 import InceptionV3
 import config
 from tqdm import tqdm
+import dataset
 
 model = InceptionV3(include_top=False, pooling='avg', input_shape=(config.resolution, config.resolution, 3))
 
 
-def FID(generator, dataset, lod, batch_size):
-    num_batches = config.fid_num_images // batch_size
+def FID(generator, lod, batch_size, num_images):
+    validation_dataset = iter(dataset.get_ffhq_tfrecord(config.resolution, batch_size))
+    num_batches = num_images // batch_size
     activations_gen = np.empty([batch_size * num_batches, 2048], dtype=np.float32)
     activations_real = np.empty([batch_size * num_batches, 2048], dtype=np.float32)
     progress_bar = tqdm(range(num_batches))
@@ -23,7 +25,7 @@ def FID(generator, dataset, lod, batch_size):
                                        method=tf.image.ResizeMethod.AREA)
 
         activations_gen[begin:end] = model.predict(resized_fake)
-        activations_real[begin:end] = model.predict(next(dataset))
+        activations_real[begin:end] = model.predict(next(validation_dataset))
     return _calculate_fid(activations_gen, activations_real)
 
 

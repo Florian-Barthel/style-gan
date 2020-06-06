@@ -5,13 +5,14 @@ import config
 
 def get_ffhq(res, batch_size):
     return tf.data.Dataset.list_files('E:/ffhq_' + str(res) + '/*.png').map(
-        get_image, num_parallel_calls=tf.data.experimental.AUTOTUNE).repeat().batch(
+        get_image, num_parallel_calls=tf.data.experimental.AUTOTUNE).shuffle(buffer_size=1000).repeat().batch(
         batch_size).prefetch(tf.data.experimental.AUTOTUNE)
 
 
 def get_ffhq_tfrecord(res, batch_size):
     dset = tf.data.TFRecordDataset('./dataset/ffhq/ffhq' + str(res) + '.tfrecords')
     dset = dset.map(lambda x: parse_tfrecord_tf(x), num_parallel_calls=tf.data.experimental.AUTOTUNE)
+    dset = dset.shuffle(buffer_size=1000)
     dset = dset.repeat()
     dset = dset.batch(batch_size)
     dset = dset.prefetch(tf.data.experimental.AUTOTUNE)

@@ -92,18 +92,18 @@ class Mapping(Layer):
         self.num_layers = num_layers
         self.num_style_layers = num_style_layers
         self.num_filters = num_filters
-        self.layers = []
+        self.dense = []
         self.bias = []
         self.activation = []
 
         for _ in range(self.num_layers):
-            self.layers.append(CustomDense(self.num_filters, lr_mul=lr_mul, use_wscale=use_wscale))
+            self.dense.append(CustomDense(self.num_filters, lr_mul=lr_mul, use_wscale=use_wscale))
             self.bias.append(ApplyBias(lr_mul, type))
             self.activation.append(activation())
 
     def call(self, x, **kwargs):
         for i in range(self.num_layers):
-            x = self.layers[i](x)
+            x = self.dense[i](x)
             x = self.bias[i](x)
             x = self.activation[i](x)
         x = tf.tile(tf.expand_dims(x, axis=1), [1, self.num_style_layers, 1])
@@ -251,7 +251,7 @@ class LayerEpilogue(Layer):
     def __init__(self, layer_index, use_wscale, type=tf.float32):
         super(LayerEpilogue, self).__init__()
         self.layer_index = layer_index
-        self.apply_noise = ApplyNoise(layer_index, type)
+        self.apply_noise = ApplyNoise()
         self.apply_bias = ApplyBias()
         self.activation = activation()
         self.instance_norm = InstanceNorm()
@@ -282,7 +282,6 @@ class StyleMod(Layer):
     def call(self, inputs, **kwargs):
         x = inputs[0]
         style = inputs[1]
-        style = tf.expand_dims(style, axis=1)
         style = self.dense(style)
         style = self.apply_bias(style)
         style = tf.reshape(style, [-1, 2, 1, 1, x.shape[3]])
@@ -319,29 +318,18 @@ class FromRGB(Layer):
 
 
 class ApplyNoise(Layer):
-    def __init__(self, layer_idx, type=tf.float32):
+    def __init__(self):
         super(ApplyNoise, self).__init__()
-        self.noise_res = layer_idx // 2 + 2
-        # self.noise_shape = [1, 2 ** noise_res, 2 ** noise_res, 1]
-        # self.noise = tf.Variable(tf.random.normal(self.noise_shape), trainable=False, dtype=type)
-        self.weight = None
-
-    def build(self, input_shape):
-        self.weight = self.add_weight(name='noise_weight',
-                                      shape=[input_shape[3]],
-                                      initializer='zeros',
-                                      trainable=True)
-        super(ApplyNoise, self).build(input_shape)
 
     def call(self, inputs, **kwargs):
-        noise_shape = [tf.shape(inputs)[0], 2 ** self.noise_res, 2 ** self.noise_res, 1]
-        return inputs + tf.random.normal(noise_shape) * self.weight
+        noise_shape = [tf.shape(inputs)[0], tf.shape(inputs)[1], tf.shape(inputs)[2], 1]
+        return inputs + tf.random.normal(noise_shape, dtype=tf.float32)
 
 
 class InstanceNorm(Layer):
     def __init__(self):
         super(InstanceNorm, self).__init__()
-        self.epsilon = tf.Variable(1e-8, dtype=tf.float32, trainable=False)
+        self.epsilon = tf.constant(1e-8, dtype=tf.float32)
 
     def call(self, x, **kwargs):
         x -= tf.reduce_mean(x, axis=[1, 2], keepdims=True)
@@ -349,11 +337,10 @@ class InstanceNorm(Layer):
         return x
 
 
-# for latent vector only
 class PixelNorm(Layer):
     def __init__(self):
         super(PixelNorm, self).__init__()
-        self.epsilon = tf.Variable(1e-8, dtype=tf.float32, trainable=False)
+        self.epsilon = tf.constant(1e-8, dtype=tf.float32)
 
     def call(self, inputs, **kwargs):
         return inputs / tf.sqrt(tf.reduce_mean(tf.square(inputs), axis=1, keepdims=True) + self.epsilon)
@@ -391,8 +378,42 @@ class Blur2d(Layer):
         self.filter = self.filter[:, np.newaxis] * self.filter[np.newaxis, :]
         self.filter /= np.sum(self.filter)
         self.filter = self.filter[:, :, np.newaxis, np.newaxis]
-        self.filter = np.tile(self.filter, [1, 1, int(input_shape[3]), 1])
+        self.filter = np.tile(self.filter, [1, 1, int(input_shape[3]), 1]) # filter shape [H, W, C, channel_multiplier]
         super(Blur2d, self).build(input_shape)
 
     def call(self, inputs, **kwargs):
         return tf.nn.depthwise_conv2d(inputs, self.filter, [1, 1, 1, 1], padding='SAME', data_format='NHWC')
+
+
+class Conv2DUpscale(Layer):
+    def __init__(self, filters, kernel, lr_mul=1, type=tf.float32, use_wscale=True, gain=np.sqrt(2)):
+        super(Conv2DUpscale, self).__init__()
+        self.filters = filters
+        self.kernel = kernel
+        self.lr_mul = lr_mul
+        self.type = type
+        self.use_wscale = use_wscale
+        self.gain = gain
+        self.weight = None
+        self.init_std = None
+        self.runtime_coef = None
+
+    def build(self, input_shape):
+        fan_in = self.kernel * self.kernel * input_shape[-1]
+        he_std = self.gain / np.sqrt(fan_in)
+        if self.use_wscale:
+            self.init_std = 1.0 / self.lr_mul
+            self.runtime_coef = he_std * self.lr_mul
+        else:
+            self.init_std = he_std / self.lr_mul
+            self.runtime_coef = self.lr_mul
+
+        self.weight = tf.Variable(tf.random.normal([self.kernel, self.kernel, input_shape[-1], self.filters],
+                                                   stddev=self.init_std),
+                                  trainable=True,
+                                  dtype=self.type)
+        super(Conv2DUpscale, self).build(input_shape)
+
+    def call(self, x, **kwargs):
+        w = self.weight * self.runtime_coef
+        return tf.nn.conv2d(x, w, strides=[1, 1, 1, 1], padding='SAME', data_format='NHWC')

@@ -8,25 +8,28 @@ latent_size = 512
 dlatent_size = 512
 num_mapping_layers = 8
 mapping_fmaps = 512
-fmap_base = 4096 // 2
+fmap_base = 4096 * 2
 fmap_max = 512
 num_channels = 3
 
 # Training
-iterations_per_lod_dict = {4: 5, 8: 10, 16: 20, 32: 40, 64: 80, 128: 80}
-minibatch_dict =          {4: 64, 8: 32, 16: 16, 32:  8, 64:   4, 128:   4}
+iterations_per_lod_dict = {4: 5,  8: 10, 16: 20, 32: 40, 64: 80, 128: 80}
+minibatch_dict =          {4: 64, 8: 32, 16: 16, 32:  8, 64:  4, 128:  4}
 minibatch_repeat = 4
 epoch_iterations = 500
 epochs = 10000
-evaluation_interval_dict = {4: 5, 8: 10, 16: 20, 32: 40, 64: 80, 128: 10}
+evaluation_interval = 10
 save_images_interval = 2
 fid_num_images = 10000
+initial_lod = 1.0
+initial_res = 2 ** (int(initial_lod) + 2)
 
 # Design Options
 reset_optimizer = True
 flip_images = True
 use_wscale = True
 use_truncation = True
+use_style_mix = True
 
 # Output
 log_dir = "./logs/" + datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")

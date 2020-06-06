@@ -20,6 +20,7 @@ print("Num GPUs Available: ", len(tf.config.experimental.list_physical_devices('
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 
+
 # Create Directories
 summary_writer = tf.summary.create_file_writer(logdir=config.log_dir)
 if not os.path.exists(config.result_folder):
@@ -84,12 +85,13 @@ def train_discriminator(latents, images, lod):
 
 def init():
     tf.config.experimental_run_functions_eagerly(True)
-    lod = 0.0
+    lod = config.initial_lod
     while lod <= int(np.log2(config.resolution)) - 2:
         lod_res = int(2 ** (np.ceil(lod) + 2))
         print('Initialize BLock {}x{}'.format(lod_res, lod_res))
         batch_size = config.minibatch_dict[lod_res]
         image_dataset = iter(dataset.get_ffhq_tfrecord(lod_res, batch_size))
+        image_batch = image_utils.fade_lod(next(image_dataset), lod)
         with tf.GradientTape() as gen_tape, tf.GradientTape() as disc_tape:
             latent = tf.random.normal([batch_size, config.latent_size], dtype=tf.float32)
             gen_loss = loss.g_logistic_nonsaturating(generator_model,
@@ -100,7 +102,7 @@ def init():
             disc_loss = loss.d_logistic_simplegp(generator_model,
                                                  discriminator_model,
                                                  lod=np.float32(lod),
-                                                 images=next(image_dataset),
+                                                 images=image_batch,
                                                  latents=latent)
 
         gen_vars = generator_model.trainable_variables
@@ -114,6 +116,7 @@ def init():
         generator_optimizer.apply_gradients(zip(gradients_of_generator, gen_vars))
         discriminator_optimizer.apply_gradients(zip(gradients_of_discriminator, disc_vars))
         lod += 0.5
+        tf.keras.backend.clear_session()
     tf.config.experimental_run_functions_eagerly(False)
     for var in generator_optimizer.variables():
         var.assign(tf.zeros_like(var))
@@ -128,8 +131,8 @@ def train_loop():
     num_images = 0
     current_iterations = 0
     increase_lod = False
-    batch_size = config.minibatch_dict[4]
-    image_dataset = iter(dataset.get_ffhq_tfrecord(4, batch_size))
+    batch_size = config.minibatch_dict[config.initial_res]
+    image_dataset = iter(dataset.get_ffhq_tfrecord(config.initial_res, batch_size))
     global var_list_index
     for iteration in range(1, config.epochs):
         progress_bar = tqdm(range(config.epoch_iterations))
@@ -153,15 +156,11 @@ def train_loop():
             tf.summary.scalar('disc_loss', disc_loss, step=iteration)
             tf.summary.scalar('lod', lod.get_value(), step=num_images)
 
-        if iteration % config.evaluation_interval_dict[lod.get_resolution()] == 0:
-            image_dataset_eval = iter(dataset.get_ffhq_tfrecord(config.resolution, batch_size))
-            fid_score = frechet_inception_distance.FID(generator_model, image_dataset_eval, lod.get_value(), batch_size)
-            with summary_writer.as_default():
-                tf.summary.scalar('FID', fid_score, step=iteration)
-            print('FID:', fid_score)
-
         if not lod.reached_max():
             if current_iterations >= config.iterations_per_lod_dict[lod.get_resolution()]:
+                fid_score = frechet_inception_distance.FID(generator_model, lod.get_value(), batch_size, config.fid_num_images)
+                with summary_writer.as_default():
+                    tf.summary.scalar('FID', fid_score, step=num_images)
                 if not increase_lod:
                     lod.increase_resolution()
                 increase_lod = not increase_lod
@@ -172,6 +171,9 @@ def train_loop():
             if increase_lod:
                 lod.increase_value(steps=config.iterations_per_lod_dict[lod.get_resolution()])
                 if current_iterations == 0:
+                    current_iterations += 1 # increase by 1 to make fade_iterations shorter by one step (0.1 .. 0.9)
+                    print('Clear Session')
+                    tf.keras.backend.clear_session()
                     batch_size = config.minibatch_dict[lod.get_resolution()]
                     print('Change Dataset')
                     image_dataset = iter(dataset.get_ffhq_tfrecord(res=lod.get_resolution(), batch_size=batch_size))
@@ -181,6 +183,11 @@ def train_loop():
                             var.assign(tf.zeros_like(var))
                         for var in discriminator_optimizer.variables():
                             var.assign(tf.zeros_like(var))
+        else:
+            if iteration % config.evaluation_interval == 0:
+                fid_score = frechet_inception_distance.FID(generator_model, lod.get_value(), batch_size, config.fid_num_images)
+                with summary_writer.as_default():
+                    tf.summary.scalar('FID', fid_score, step=num_images)
 
 
 init()
