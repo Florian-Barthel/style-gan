@@ -54,9 +54,9 @@ var_list_index = 0
 def train_generator(latents, lod):
     global var_list_index
     gen_vars = gen_var_list[var_list_index]
+    global generator_model
+    global discriminator_model
     with tf.GradientTape() as gen_tape:
-        global generator_model
-        global discriminator_model
         gen_loss = loss.g_logistic_nonsaturating(generator_model,
                                                  discriminator_model,
                                                  latents=latents,
@@ -110,14 +110,17 @@ def init():
         gen_var_list.append(gen_vars)
         disc_var_list.append(disc_vars)
 
+        #gen_loss = gen_loss * 0.01
+        #disc_loss = disc_loss * 0.01
+
         gradients_of_generator = gen_tape.gradient(gen_loss, gen_vars)
         gradients_of_discriminator = disc_tape.gradient(disc_loss, disc_vars)
 
         generator_optimizer.apply_gradients(zip(gradients_of_generator, gen_vars))
         discriminator_optimizer.apply_gradients(zip(gradients_of_discriminator, disc_vars))
         lod += 0.5
-        tf.keras.backend.clear_session()
     tf.config.experimental_run_functions_eagerly(False)
+    tf.keras.backend.clear_session()
     for var in generator_optimizer.variables():
         var.assign(tf.zeros_like(var))
     for var in discriminator_optimizer.variables():

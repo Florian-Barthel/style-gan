@@ -251,7 +251,7 @@ class LayerEpilogue(Layer):
     def __init__(self, layer_index, use_wscale, type=tf.float32):
         super(LayerEpilogue, self).__init__()
         self.layer_index = layer_index
-        self.apply_noise = ApplyNoise()
+        self.apply_noise = ApplyNoise(type)
         self.apply_bias = ApplyBias()
         self.activation = activation()
         self.instance_norm = InstanceNorm()
@@ -318,12 +318,20 @@ class FromRGB(Layer):
 
 
 class ApplyNoise(Layer):
-    def __init__(self):
+    def __init__(self, type):
         super(ApplyNoise, self).__init__()
+        self.weight = None
+        self.type = type
+
+    def build(self, input_shape):
+        self.weight = tf.Variable(tf.zeros([input_shape[-1]]),
+                                  trainable=True,
+                                  dtype=self.type)
+        super(ApplyNoise, self).build(input_shape)
 
     def call(self, inputs, **kwargs):
         noise_shape = [tf.shape(inputs)[0], tf.shape(inputs)[1], tf.shape(inputs)[2], 1]
-        return inputs + tf.random.normal(noise_shape, dtype=tf.float32)
+        return inputs + tf.random.normal(noise_shape, dtype=tf.float32) * self.weight
 
 
 class InstanceNorm(Layer):

@@ -15,6 +15,7 @@ num_channels = 3
 # Training
 iterations_per_lod_dict = {4: 5,  8: 10, 16: 20, 32: 40, 64: 80, 128: 80}
 minibatch_dict =          {4: 64, 8: 32, 16: 16, 32:  8, 64:  4, 128:  4}
+# minibatch_dict =        {4: 128, 8: 128, 16: 128, 32: 64, 64: 32, 128: 16}
 minibatch_repeat = 4
 epoch_iterations = 500
 epochs = 10000
