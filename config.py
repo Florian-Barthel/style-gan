@@ -20,7 +20,6 @@ minibatch_repeat = 4
 epoch_iterations = 500
 epochs = 10000
 evaluation_interval = 10
-save_images_interval = 2
 fid_num_images = 10000
 initial_lod = 1.0
 initial_res = 2 ** (int(initial_lod) + 2)
@@ -32,9 +31,12 @@ use_wscale = True
 use_truncation = True
 use_style_mix = True
 
-# Output
+# Directories
 log_dir = "./logs/" + datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 result_folder = './runs/' + datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+
+# Snapshots
+save_images_interval = 1
 num_examples_to_generate = 16
 min_batch_size = minibatch_dict[min(minibatch_dict.keys(), key=(lambda k: minibatch_dict[k]))]
 num_batches = int(np.ceil(num_examples_to_generate / min_batch_size))

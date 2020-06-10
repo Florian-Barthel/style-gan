@@ -8,7 +8,7 @@ import os
 start = time.time()
 
 
-def generate_and_save_images(generator_model, num_images, lod, iteration):
+def generate_and_save_images(generator_model, num_images, lod, iteration, name):
 
     image_res = int(2 ** (np.ceil(lod) + 2))
     images = np.empty([config.min_batch_size * config.num_batches, image_res, image_res, config.num_channels], dtype=np.float32)
@@ -35,5 +35,5 @@ def generate_and_save_images(generator_model, num_images, lod, iteration):
     image_folder = config.result_folder + '/images/'
     if not os.path.exists(image_folder):
         os.makedirs(image_folder)
-    plt.savefig(image_folder + '/image_at_iteration_{:04d}.png'.format(iteration), dpi=300)
+    plt.savefig(image_folder + '/image_at_iteration_{:04d}_{}.png'.format(iteration, name), dpi=300)
     plt.close('all')

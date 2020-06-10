@@ -20,7 +20,6 @@ print("Num GPUs Available: ", len(tf.config.experimental.list_physical_devices('
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 
-
 # Create Directories
 summary_writer = tf.summary.create_file_writer(logdir=config.log_dir)
 if not os.path.exists(config.result_folder):
@@ -37,6 +36,14 @@ generator_model = generator.Generator(num_mapping_layers=config.num_mapping_laye
                                       fmap_base=config.fmap_base,
                                       num_channels=config.num_channels,
                                       use_wscale=config.use_wscale)
+
+generator_model_eval = generator.Generator(num_mapping_layers=config.num_mapping_layers,
+                                           mapping_fmaps=config.mapping_fmaps,
+                                           resolution=config.resolution,
+                                           fmap_base=config.fmap_base,
+                                           num_channels=config.num_channels,
+                                           use_wscale=config.use_wscale)
+
 discriminator_model = discriminator.Discriminator(resolution=config.resolution,
                                                   fmap_base=config.fmap_base,
                                                   use_wscale=config.use_wscale)
@@ -46,16 +53,14 @@ generator_optimizer = tf.keras.optimizers.Adam(beta_1=0.0, beta_2=0.99, epsilon=
 discriminator_optimizer = tf.keras.optimizers.Adam(beta_1=0.0, beta_2=0.99, epsilon=1e-8)
 
 gen_var_list = []
+gen_eval_var_list = []
 disc_var_list = []
 var_list_index = 0
 
 
 @tf.function
 def train_generator(latents, lod):
-    global var_list_index
     gen_vars = gen_var_list[var_list_index]
-    global generator_model
-    global discriminator_model
     with tf.GradientTape() as gen_tape:
         gen_loss = loss.g_logistic_nonsaturating(generator_model,
                                                  discriminator_model,
@@ -69,7 +74,6 @@ def train_generator(latents, lod):
 
 @tf.function
 def train_discriminator(latents, images, lod):
-    global var_list_index
     disc_vars = disc_var_list[var_list_index]
     with tf.GradientTape() as disc_tape:
         disc_loss = loss.d_logistic_simplegp(generator_model,
@@ -81,6 +85,18 @@ def train_discriminator(latents, images, lod):
     gradients_of_discriminator = disc_tape.gradient(disc_loss, disc_vars)
     discriminator_optimizer.apply_gradients(zip(gradients_of_discriminator, disc_vars))
     return disc_loss
+
+
+# @tf.function
+# def gen_move_average(beta, gen_vars, gen_eval_vars):
+#     new_vars = []
+#     for i in range(len(gen_eval_vars)):
+#         new_vars.append(gen_vars[i] + (gen_eval_vars[i] - gen_vars[i]) * beta)
+#     return new_vars
+
+@tf.function
+def gen_move_average(beta, gen_vars, gen_eval_vars):
+    return [gen_vars[i] + (gen_eval_vars[i] - gen_vars[i]) * beta for i in range(len(gen_eval_vars))]
 
 
 def init():
@@ -98,6 +114,11 @@ def init():
                                                      discriminator_model,
                                                      latents=latent,
                                                      lod=np.float32(lod))
+            # inti eval model
+            gen_loss_eval = loss.g_logistic_nonsaturating(generator_model_eval,
+                                                     discriminator_model,
+                                                     latents=latent,
+                                                     lod=np.float32(lod))
             latent = tf.random.normal([batch_size, config.latent_size], dtype=tf.float32)
             disc_loss = loss.d_logistic_simplegp(generator_model,
                                                  discriminator_model,
@@ -107,11 +128,10 @@ def init():
 
         gen_vars = generator_model.trainable_variables
         disc_vars = discriminator_model.trainable_variables
+        gen_val_vars = generator_model_eval.trainable_variables
         gen_var_list.append(gen_vars)
+        gen_eval_var_list.append(gen_val_vars)
         disc_var_list.append(disc_vars)
-
-        #gen_loss = gen_loss * 0.01
-        #disc_loss = disc_loss * 0.01
 
         gradients_of_generator = gen_tape.gradient(gen_loss, gen_vars)
         gradients_of_discriminator = disc_tape.gradient(disc_loss, disc_vars)
@@ -135,6 +155,7 @@ def train_loop():
     current_iterations = 0
     increase_lod = False
     batch_size = config.minibatch_dict[config.initial_res]
+    beta = 0.5 ** (tf.cast(batch_size, tf.float32) / (10 * 1000.0))
     image_dataset = iter(dataset.get_ffhq_tfrecord(config.initial_res, batch_size))
     global var_list_index
     for iteration in range(1, config.epochs):
@@ -150,10 +171,12 @@ def train_loop():
                 latent = tf.random.normal([batch_size, config.latent_size], dtype=tf.float32)
                 gen_loss = train_generator(latents=latent, lod=lod.get_value())
                 num_images += batch_size
+                generator_model_eval.set_weights(gen_move_average(beta, generator_model.weights, generator_model_eval.weights))
 
         current_iterations += 1
         if iteration % config.save_images_interval == 0:
-            save_images.generate_and_save_images(generator_model, num_images, lod.get_value(), iteration)
+            save_images.generate_and_save_images(generator_model_eval, num_images, lod.get_value(), iteration, 'smooth')
+            save_images.generate_and_save_images(generator_model, num_images, lod.get_value(), iteration, 'raw')
         with summary_writer.as_default():
             tf.summary.scalar('gen_loss', gen_loss, step=iteration)
             tf.summary.scalar('disc_loss', disc_loss, step=iteration)
@@ -161,7 +184,9 @@ def train_loop():
 
         if not lod.reached_max():
             if current_iterations >= config.iterations_per_lod_dict[lod.get_resolution()]:
-                fid_score = frechet_inception_distance.FID(generator_model, lod.get_value(), batch_size, config.fid_num_images)
+                fid_score = frechet_inception_distance.FID(generator_model_eval, lod.get_value(), batch_size,
+                                                           config.fid_num_images)
+                print(fid_score)
                 with summary_writer.as_default():
                     tf.summary.scalar('FID', fid_score, step=num_images)
                 if not increase_lod:
@@ -174,10 +199,11 @@ def train_loop():
             if increase_lod:
                 lod.increase_value(steps=config.iterations_per_lod_dict[lod.get_resolution()])
                 if current_iterations == 0:
-                    current_iterations += 1 # increase by 1 to make fade_iterations shorter by one step (0.1 .. 0.9)
+                    current_iterations += 1  # increase by 1 to make fade_iterations shorter by one step (0.1 .. 0.9)
                     print('Clear Session')
                     tf.keras.backend.clear_session()
                     batch_size = config.minibatch_dict[lod.get_resolution()]
+                    beta = 0.5 ** (tf.cast(batch_size, tf.float32) / (10 * 1000.0))
                     print('Change Dataset')
                     image_dataset = iter(dataset.get_ffhq_tfrecord(res=lod.get_resolution(), batch_size=batch_size))
                     if config.reset_optimizer:
@@ -188,7 +214,9 @@ def train_loop():
                             var.assign(tf.zeros_like(var))
         else:
             if iteration % config.evaluation_interval == 0:
-                fid_score = frechet_inception_distance.FID(generator_model, lod.get_value(), batch_size, config.fid_num_images)
+                fid_score = frechet_inception_distance.FID(generator_model_eval, lod.get_value(), batch_size,
+                                                           config.fid_num_images)
+                print(fid_score)
                 with summary_writer.as_default():
                     tf.summary.scalar('FID', fid_score, step=num_images)
 

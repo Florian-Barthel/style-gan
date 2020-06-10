@@ -391,37 +391,3 @@ class Blur2d(Layer):
 
     def call(self, inputs, **kwargs):
         return tf.nn.depthwise_conv2d(inputs, self.filter, [1, 1, 1, 1], padding='SAME', data_format='NHWC')
-
-
-class Conv2DUpscale(Layer):
-    def __init__(self, filters, kernel, lr_mul=1, type=tf.float32, use_wscale=True, gain=np.sqrt(2)):
-        super(Conv2DUpscale, self).__init__()
-        self.filters = filters
-        self.kernel = kernel
-        self.lr_mul = lr_mul
-        self.type = type
-        self.use_wscale = use_wscale
-        self.gain = gain
-        self.weight = None
-        self.init_std = None
-        self.runtime_coef = None
-
-    def build(self, input_shape):
-        fan_in = self.kernel * self.kernel * input_shape[-1]
-        he_std = self.gain / np.sqrt(fan_in)
-        if self.use_wscale:
-            self.init_std = 1.0 / self.lr_mul
-            self.runtime_coef = he_std * self.lr_mul
-        else:
-            self.init_std = he_std / self.lr_mul
-            self.runtime_coef = self.lr_mul
-
-        self.weight = tf.Variable(tf.random.normal([self.kernel, self.kernel, input_shape[-1], self.filters],
-                                                   stddev=self.init_std),
-                                  trainable=True,
-                                  dtype=self.type)
-        super(Conv2DUpscale, self).build(input_shape)
-
-    def call(self, x, **kwargs):
-        w = self.weight * self.runtime_coef
-        return tf.nn.conv2d(x, w, strides=[1, 1, 1, 1], padding='SAME', data_format='NHWC')

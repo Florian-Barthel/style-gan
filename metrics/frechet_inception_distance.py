@@ -5,6 +5,7 @@ from tensorflow.keras.applications.inception_v3 import InceptionV3
 import config
 from tqdm import tqdm
 import dataset
+import scipy
 
 model = InceptionV3(include_top=False, pooling='avg', input_shape=(config.resolution, config.resolution, 3))
 
@@ -29,11 +30,10 @@ def FID(generator, lod, batch_size, num_images):
     return _calculate_fid(activations_gen, activations_real)
 
 
-def _calculate_fid(act1, act2):
-    mu1, sigma1 = act1.mean(axis=0), np.cov(act1, rowvar=False)
-    mu2, sigma2 = act2.mean(axis=0), np.cov(act2, rowvar=False)
-    ssdiff = np.sum((mu1 - mu2) ** 2.0)
-    covmean = sqrtm(sigma1.dot(sigma2))
-    if np.iscomplexobj(covmean):
-        covmean = np.real(covmean)
-    return ssdiff + np.trace(sigma1 + sigma2 - 2.0 * covmean)
+def _calculate_fid(fake_act, real_act):
+    mu_fake, sigma_fake = fake_act.mean(axis=0), np.cov(fake_act, rowvar=False)
+    mu_real, sigma_real = real_act.mean(axis=0), np.cov(real_act, rowvar=False)
+    m = np.square(mu_fake - mu_real).sum()
+    s, _ = scipy.linalg.sqrtm(np.dot(sigma_fake, sigma_real), disp=False)
+    dist = m + np.trace(sigma_fake + sigma_real - 2 * s)
+    return np.real(dist)

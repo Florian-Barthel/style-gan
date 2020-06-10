@@ -134,4 +134,4 @@ training_checkpoints
 images/*
 logs/*
 runs/*
-dataset/ffhq/*
+dataset/ffhq_nhwc/*
